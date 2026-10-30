@@ -589,6 +589,7 @@ void WiFiScan::renderRemoteIdGlobal() {
     display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
     display_obj.tft.setCursor(lx, top + 2);
     #ifdef MARAUDER_CROWPANEL_ADV
+      // No "CH:" here: the channel is deliberately not shown at the top of CrowPanel screens.
       display_obj.tft.print("RID devices: " + String(recordCount));
     #else
     display_obj.tft.print("RID devices: " + String(recordCount) +

@@ -559,18 +559,10 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
   #ifdef MARAUDER_CROWPANEL_ADV
     // Channel -/+ live in the toolbar under the header; the channel number is
     // shown only in the toolbar's label.
-    crow_toolbar = true;
-    crow_ch = set_channel;
+    crowpanel_toolbar = true;
+    crowpanel_ch = set_channel;
     TOP_FIXED_AREA_2 = crowpanel::kScanBodyTopToolbar;
-    key[CHAN_MINUS_INDEX].initButton(&tft, crowpanel::kChDownBtn.x + crowpanel::kChDownBtn.w / 2,
-                                     crowpanel::kChDownBtn.y + crowpanel::kChDownBtn.h / 2,
-                                     crowpanel::kChDownBtn.w, crowpanel::kChDownBtn.h,
-                                     TFT_BLACK, TFT_BLACK, TFT_BLACK, (char *)"-", 1);
-    key[CHAN_PLUS_INDEX].initButton(&tft, crowpanel::kChUpBtn.x + crowpanel::kChUpBtn.w / 2,
-                                    crowpanel::kChUpBtn.y + crowpanel::kChUpBtn.h / 2,
-                                    crowpanel::kChUpBtn.w, crowpanel::kChUpBtn.h,
-                                    TFT_BLACK, TFT_BLACK, TFT_BLACK, (char *)"+", 1);
-    crowToolbar();
+    crowpanelToolbar();
     return;
   #endif
   #ifdef MARAUDER_POOM
@@ -637,15 +629,11 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
 
 void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
   #ifdef MARAUDER_CROWPANEL_ADV
-    crow_toolbar = true;
-    crow_hop_en = true;
-    crow_hop = en;
+    crowpanel_toolbar = true;
+    crowpanel_hop_en = true;
+    crowpanel_hop = en;
     TOP_FIXED_AREA_2 = crowpanel::kScanBodyTopToolbar;
-    key[CHAN_HOP_INDEX].initButton(&tft, crowpanel::kHopBtn.x + crowpanel::kHopBtn.w / 2,
-                                   crowpanel::kHopBtn.y + crowpanel::kHopBtn.h / 2,
-                                   crowpanel::kHopBtn.w, crowpanel::kHopBtn.h,
-                                   TFT_BLACK, TFT_BLACK, TFT_BLACK, (char *)"HOP", 1);
-    crowToolbar();
+    crowpanelToolbar();
     return;
   #endif
   #ifdef MARAUDER_POOM
@@ -713,12 +701,8 @@ void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
 
 void Display::tftDrawExitScaleButtons(bool lnd_an) {
   #ifdef MARAUDER_CROWPANEL_ADV
-    // EXIT is the header STOP button.
-    key[EXIT_BUTTON_INDEX].initButton(&tft, crowpanel::kStopBtn.x + crowpanel::kStopBtn.w / 2,
-                                      crowpanel::kStopBtn.y + crowpanel::kStopBtn.h / 2,
-                                      crowpanel::kStopBtn.w, crowpanel::kStopBtn.h,
-                                      TFT_BLACK, TFT_BLACK, TFT_BLACK, (char *)"STOP", 1);
-    crowpanel::ui::drawHeader(tft, crow_title, "", false, true);
+    // STOP is the header button, hit-tested by rect in checkAnalyzerButtons.
+    crowpanel::ui::drawHeader(tft, crowpanel_title, "", false, true);
     return;
   #endif
   #ifdef MARAUDER_POOM
@@ -791,9 +775,9 @@ void Display::twoPartDisplay(String center_text)
 }
 
 #ifdef MARAUDER_CROWPANEL_ADV
-void Display::crowToolbar() {
-  crowpanel::ui::drawToolbar(tft, crow_ch, crow_hop);
-  if (!crow_hop_en)
+void Display::crowpanelToolbar() {
+  crowpanel::ui::drawToolbar(tft, crowpanel_ch, crowpanel_hop);
+  if (!crowpanel_hop_en)
     crowpanel::ui::drawButton(tft, crowpanel::kHopBtn, "HOP", crowpanel::ui::Style::Disabled);
 }
 
@@ -809,13 +793,13 @@ void Display::crowpanelBodyLine(const char* text, int16_t y, uint16_t color) {
 }
 
 void Display::crowpanelScanHeader(const char* title) {
-  strlcpy(crow_title, title ? title : "", sizeof(crow_title));
-  crow_toolbar = false;
-  crow_hop_en = true;
+  strlcpy(crowpanel_title, title ? title : "", sizeof(crowpanel_title));
+  crowpanel_toolbar = false;
+  crowpanel_hop_en = true;
   crow_stat_n = 0;
   TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop;
   crowpanel::ui::clearBody(tft, crowpanel::kScanBodyTop);
-  crowpanel::ui::drawHeader(tft, crow_title, "", false, true);
+  crowpanel::ui::drawHeader(tft, crowpanel_title, "", false, true);
 }
 
 void Display::crowpanelStatsRow(const crowpanel::Rect* rects, uint8_t n,
@@ -890,11 +874,11 @@ void Display::clearScreen()
 {
   #ifdef MARAUDER_CROWPANEL_ADV
     TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop;
-    crow_toolbar = false;
-    crow_hop = false;
-    crow_hop_en = true;
+    crowpanel_toolbar = false;
+    crowpanel_hop = false;
+    crowpanel_hop_en = true;
     crow_stat_n = 0;
-    crow_title[0] = 0;
+    crowpanel_title[0] = 0;
     tft.fillScreen(crowpanel::kBg);
     tft.setCursor(0, 0);
     return;
