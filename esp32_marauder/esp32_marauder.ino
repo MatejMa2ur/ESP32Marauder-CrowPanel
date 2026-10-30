@@ -205,7 +205,12 @@ uint32_t currentTime  = 0;
 // Helper macros for LEDC API compatibility (2.x vs 3.x board package)
 #ifdef HAS_SCREEN
   #ifndef HAS_MINI_SCREEN
-    #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // Backlight is the I2C MCU at 0x30, not LEDC. duty 0 (backlightOff) is skipped:
+      // it runs before panel power-on and we don't want an I2C write then.
+      #define BL_SETUP()       do {} while(0)
+      #define BL_SET(duty)     do { if (duty) crowpanel_adv_set_brightness((duty) * 100 / 255); } while(0)
+    #elif ESP_ARDUINO_VERSION_MAJOR >= 3
       #define BL_SETUP()       ledcAttach(TFT_BL, BL_FREQ, BL_RESOLUTION)
       #define BL_SET(duty)     ledcWrite(TFT_BL, (duty))
     #else
@@ -366,7 +371,7 @@ void setup()
     digitalWrite(POWER_HOLD_PIN, HIGH);
   #endif
   
-  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM) && !defined(MARAUDER_M5STACK_CORE2_AWS)
+  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM) && !defined(MARAUDER_M5STACK_CORE2_AWS) && !defined(MARAUDER_CROWPANEL_ADV)
     pinMode(TFT_BL, OUTPUT);
   #endif
 

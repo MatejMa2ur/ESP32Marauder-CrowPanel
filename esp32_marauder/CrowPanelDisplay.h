@@ -57,10 +57,18 @@ static inline void crowpanel_adv_bl_cmd(uint8_t cmd) {
 }
 
 // Bring up the backlight MCU + GT911. Wait until both ACK; while absent, nudge
-// with cmd 250 (activate) and toggle GPIO1 (GT911 INT) low to select addr 0x5D.
+// with the activate cmd and toggle GPIO1 (GT911 INT) low to select addr 0x5D.
+// V1.1: the 0x30 MCU keeps state across ESP warm resets (and shows its self-test
+// colour cycle if not re-activated), so activate + INT pulse ALWAYS run once first.
 static inline void crowpanel_adv_panel_power_on() {
   Wire.begin(15, 16);
+  Wire.setClock(400000);
   delay(50);
+#ifdef CROWPANEL_ADV_V11
+  crowpanel_adv_bl_cmd(CROWPANEL_ADV_CMD_ACTIVATE);
+  pinMode(1, OUTPUT); digitalWrite(1, LOW); delay(120); pinMode(1, INPUT);
+  delay(100);
+#endif
   for (int tries = 0; tries < 50; tries++) {
     Wire.beginTransmission(0x30); bool a30 = (Wire.endTransmission() == 0);
     Wire.beginTransmission(0x5D); bool a5d = (Wire.endTransmission() == 0);
@@ -129,10 +137,24 @@ class CrowPanelBus : public lgfx::Bus_RGB {
   }
 };
 
+// percent 10..100. V1.1: enable (0x10) then one of 5 levels; V1.2/1.3: single
+// byte, 0 = brightest. Mirrors board_brightness() in Marauder-GD.
+static inline void crowpanel_adv_set_brightness(uint8_t percent) {
+  if (percent < 10) percent = 10;
+  if (percent > 100) percent = 100;
+#ifdef CROWPANEL_ADV_V11
+  static const uint8_t levels[] = {0x06, 0x07, 0x08, 0x09, 0x10};
+  uint8_t i = (percent - 1) / 20;
+  crowpanel_adv_bl_cmd(0x10);
+  crowpanel_adv_bl_cmd(levels[i > 4 ? 4 : i]);
+#else
+  crowpanel_adv_bl_cmd(244 - percent * 244 / 100);
+#endif
+}
+
 class CrowPanelDisplay : public lgfx::LGFX_Device {
   CrowPanelBus    _bus;
   lgfx::Panel_RGB _panel;
-  lgfx::Touch_GT911 _touch;
 
  public:
   CrowPanelDisplay() {
@@ -174,33 +196,17 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       _bus.config(cfg);
     }
     _panel.setBus(&_bus);
-    {
-      auto cfg = _touch.config();
-      cfg.x_min = 0; cfg.x_max = 800;
-      cfg.y_min = 0; cfg.y_max = 480;
-      cfg.pin_int = -1;
-      cfg.bus_shared = false;
-      cfg.offset_rotation = 0;
-      cfg.i2c_port = I2C_NUM_0;
-      cfg.pin_sda = GPIO_NUM_15;
-      cfg.pin_scl = GPIO_NUM_16;
-      cfg.pin_rst = -1;
-      cfg.freq = 400000;
-      cfg.i2c_addr = 0x5D;  // alt 0x14 depending on INT level at boot
-      _touch.config(cfg);
-      _panel.setTouch(&_touch);
-    }
     setPanel(&_panel);
   }
 
   // ---- TFT_eSPI compatibility shims (names the rest of Marauder calls) ----
 
-  // Marauder calls tft.init(). The backlight + reset live on the TCA9534 I2C
-  // expander, which must be driven BEFORE the RGB panel init -- do that first.
+  // Marauder calls tft.init(). The backlight MCU (I2C 0x30) must be activated
+  // BEFORE the RGB panel init, so run panel power-on first.
   bool init() {
-    // Marauder calls tft.init() on every scan/menu switch. On the RGB panel that
-    // would re-run power-on (backlight reset, blank) and re-allocate the PSRAM
-    // framebuffer, so bring up once; later calls are no-ops.
+    // Marauder calls tft.init() on every scan/menu switch. Re-running it would
+    // repeat panel power-on (backlight reset, blank) and LGFX init on a live
+    // panel, so bring up once; later calls are no-ops.
     static bool ready = false;
     if (ready) return true;
     crowpanel_adv_panel_power_on();
@@ -216,10 +222,9 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
   // so the TFT_eSPI calibration setter is a no-op here.
   void setTouch(uint16_t * = nullptr) {}
 
-  // TFT_eSPI's getTouch has a trailing threshold arg; LovyanGFX's does not.
-  bool getTouch(uint16_t *x, uint16_t *y, uint16_t = 600) {
-    return lgfx::LGFX_Device::getTouch(x, y);
-  }
+  // Touch is read only by gt911.h (Display::updateTouch); LGFX has no touch
+  // driver here. Kept so TFT_eSPI-style callers still compile.
+  bool getTouch(uint16_t *, uint16_t *, uint16_t = 600) { return false; }
 
   // Marauder calls drawXBitmap/setTextColor with mixed int/uint16_t color
   // arguments. LovyanGFX's templated versions can't deduce a single color type

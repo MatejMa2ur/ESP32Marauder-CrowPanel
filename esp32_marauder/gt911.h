@@ -12,7 +12,7 @@
 // the ft6336.h contract so Display.cpp can use it the same way:
 //   gt911_init()                    -- bring up the I2C bus / controller
 //   gt911_read_raw(&x, &y) -> int8  -- 1 active touch, 0 confirmed release,
-//                                      -1 transport error (don't treat as tap)
+//                                      transport errors repeat the last state
 // Coordinates are the panel's native landscape space (0..799 x 0..479); the
 // rotation transform lives in Display::updateTouch.
 //
