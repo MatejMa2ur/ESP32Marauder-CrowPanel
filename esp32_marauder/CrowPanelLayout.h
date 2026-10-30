@@ -151,6 +151,23 @@ constexpr Rect statRect(uint8_t i) {
   return Rect{static_cast<int16_t>(kRowX + i * (kStatW + kTileGap)), kBodyTop, kStatW, kStatH};
 }
 
+// Unified live results list -- styled rows below the stat/toolbar band, above the
+// footer. Used by scans/sniffers instead of raw scrolling text.
+constexpr int16_t kLiveRowH = 26;
+constexpr int16_t kLiveFooterTop = 404;  // leave room for the page/status footer
+// Banner strip (mode . channel . activity) sits just under the stat row.
+constexpr int16_t kBannerH = 24;
+constexpr Rect liveBanner(int16_t top) { return Rect{kRowX, top, kRowW, kBannerH}; }
+constexpr int16_t liveListTop(int16_t banner_top) {
+  return static_cast<int16_t>(banner_top + kBannerH + 6);
+}
+constexpr uint8_t liveRowsThatFit(int16_t list_top) {
+  return static_cast<uint8_t>((kLiveFooterTop - list_top) / kLiveRowH);
+}
+constexpr Rect liveRowRect(int16_t list_top, uint8_t i) {
+  return Rect{kRowX, static_cast<int16_t>(list_top + i * kLiveRowH), kRowW, kLiveRowH};
+}
+
 constexpr uint8_t scanTextLines(bool toolbar) {
   return static_cast<uint8_t>((kScreenH - (toolbar ? kScanBodyTopToolbar : kScanBodyTop)) / kTextLineH);
 }

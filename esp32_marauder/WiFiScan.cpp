@@ -7346,8 +7346,13 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
         #endif
         display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
         #ifdef MARAUDER_CROWPANEL_ADV
-          if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON))
+          if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON)) {
             this->crowpanelScanCards("DEVICES", false);
+            // Unified scan banner (foundation): what it's doing. BLE advertises on
+            // channels 37/38/39 and the stack hops them itself, so no single ch.
+            crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                      "Scanning BLE advertisements", 0, true);
+          }
         #endif
       #endif
       if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON)) {

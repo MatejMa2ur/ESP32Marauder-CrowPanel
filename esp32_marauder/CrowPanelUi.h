@@ -42,6 +42,77 @@ inline void fit(CrowPanelDisplay &tft, const char *s, int16_t maxW, char *out, s
   }
 }
 
+// --- Unified live scan/sniff view (shared by every WiFi/BLE scanner) ---------
+
+// RSSI -> status colour (GD mapping): strong = green, mid = amber, weak = red.
+inline uint16_t rssiColor(int rssi) {
+  if (rssi >= -60) return 0x6F8D;  // ~#6ef36a green  "good"
+  if (rssi >= -75) return kWarn;   // amber           "mid"
+  return kDanger;                  // red             "weak"
+}
+
+// Banner under the stat cards: what the sniffer is doing + the channel it's on.
+// Every scan view draws the same, so the user always sees mode + channel.
+inline void drawBanner(CrowPanelDisplay &tft, int16_t top, const char *doing,
+                       int channel, bool hopping) {
+  Rect r = liveBanner(top);
+  tft.fillRect(r.x, r.y, r.w, r.h, kBg);
+  tft.fillRect(r.x, r.y + 3, 4, r.h - 6, kAccent);  // accent tick
+  char buf[48];
+  tft.setFont(&fonts::Font2);
+  tft.setTextColor(kText, kBg);
+  tft.setTextDatum(lgfx::middle_left);
+  fit(tft, doing ? doing : "", r.w - 200, buf, sizeof(buf));
+  tft.drawString(buf, r.x + 14, r.y + r.h / 2);
+  char meta[32];
+  if (channel > 0)
+    snprintf(meta, sizeof(meta), "ch %d%s", channel, hopping ? "  hop" : "");
+  else
+    snprintf(meta, sizeof(meta), "%s", hopping ? "hopping" : "");
+  tft.setTextColor(kAccent, kBg);
+  tft.setTextDatum(lgfx::middle_right);
+  tft.drawString(meta, r.x + r.w - 6, r.y + r.h / 2);
+  restore(tft);
+}
+
+// One result row: primary (name/SSID/MAC) left, meta (type/ch) muted, RSSI right
+// colour-coded by strength. hasRssi=false hides the RSSI column.
+inline void drawLiveRow(CrowPanelDisplay &tft, Rect r, const char *primary,
+                        const char *meta, int rssi, bool hasRssi) {
+  tft.fillRect(r.x, r.y, r.w, r.h, kBg);
+  tft.drawFastHLine(r.x, r.y + r.h - 1, r.w, kEdge);  // thin separator
+  char buf[64];
+  tft.setFont(&fonts::Font2);
+  int16_t text_right = r.x + r.w - 12;
+  if (hasRssi) {
+    char rb[12];
+    snprintf(rb, sizeof(rb), "%d", rssi);
+    tft.setTextColor(rssiColor(rssi), kBg);
+    tft.setTextDatum(lgfx::middle_right);
+    tft.drawString(rb, r.x + r.w - 12, r.y + r.h / 2);
+    text_right = r.x + r.w - 72;
+  }
+  int16_t meta_w = 0;
+  if (meta && meta[0]) {
+    char mb[28];
+    fit(tft, meta, 180, mb, sizeof(mb));
+    meta_w = tft.textWidth(mb) + 16;
+    tft.setTextColor(kMuted, kBg);
+    tft.setTextDatum(lgfx::middle_right);
+    tft.drawString(mb, text_right, r.y + r.h / 2);
+  }
+  tft.setTextColor(kText, kBg);
+  tft.setTextDatum(lgfx::middle_left);
+  fit(tft, primary ? primary : "", (text_right - meta_w) - (r.x + 12), buf, sizeof(buf));
+  tft.drawString(buf, r.x + 12, r.y + r.h / 2);
+  restore(tft);
+}
+
+// Clear the live-list body (banner top down to the footer).
+inline void clearLiveBody(CrowPanelDisplay &tft, int16_t banner_top) {
+  tft.fillRect(0, banner_top, kScreenW, kLiveFooterTop - banner_top, kBg);
+}
+
 inline void drawButton(CrowPanelDisplay &tft, Rect r, const char *label, Style s, bool pressed = false) {
   uint16_t edge = kEdge, text = kText, fill = kPanel;
   switch (s) {
