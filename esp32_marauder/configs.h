@@ -3646,6 +3646,12 @@
   #ifdef HAS_NEOPIXEL_LED
     #undef HAS_NEOPIXEL_LED
   #endif
+  // No GPS on this panel. Pancake's GPS UART uses GPIO13/14, which here are RGB
+  // data lines (G4/G5): the baud-probe loop re-muxes them to UART forever and
+  // the whole screen cycles colours. A GPS would need other free pins.
+  #ifdef HAS_GPS
+    #undef HAS_GPS
+  #endif
   // No battery fuel gauge on this panel board.
   #ifdef HAS_MAX1704X
     #undef HAS_MAX1704X
