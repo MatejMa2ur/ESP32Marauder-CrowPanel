@@ -3604,6 +3604,23 @@
   // Cod3rs accent (#755AFB) for the status bar / theme.
   #undef STATUSBAR_COLOR
   #define STATUSBAR_COLOR 0x72DF
+  // Menu geometry: Pancake's 320x22 keys are a thin strip on this 800x480
+  // panel and too small to hit with a finger. Full-width 48px keys, 8 per page
+  // (48 status bar + 8 * 49 = 440 < 480). Tune KEY_H / BUTTON_SCREEN_LIMIT together.
+  #undef KEY_X
+  #undef KEY_Y
+  #undef KEY_W
+  #undef KEY_H
+  #undef KEY_TEXTSIZE
+  #undef BUTTON_PADDING
+  #undef BUTTON_SCREEN_LIMIT
+  #define KEY_X (TFT_WIDTH / 2)
+  #define KEY_Y (TOP_FIXED_AREA + KEY_H / 2)
+  #define KEY_W TFT_WIDTH
+  #define KEY_H 48
+  #define KEY_TEXTSIZE 2
+  #define BUTTON_PADDING 40
+  #define BUTTON_SCREEN_LIMIT 8
   // Backlight pin (GPIO2) for the LEDC brightness control path.
   #ifndef TFT_BL
     #define TFT_BL 2

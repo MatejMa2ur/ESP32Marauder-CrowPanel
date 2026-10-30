@@ -34,6 +34,16 @@
 // CrowPanel-Advance-5 S3 V1.2/V1.3 lesson-03 / factory flow.
 #define CROWPANEL_ADV_BL_ADDR  0x30
 
+// V1.1 controller (CROWPANEL_ADV_V11): different command set at the same 0x30 --
+// 0x19 = activate touch, 0x10 = backlight enable, then a level 0x06..0x10
+// (0x10 brightest). Sending the V1.2/V1.3 bytes to it leaves the screen black.
+// Verified on-device in Marauder-GD (main/board.cpp). No HW revision detection.
+#ifdef CROWPANEL_ADV_V11
+  #define CROWPANEL_ADV_CMD_ACTIVATE 0x19
+#else
+  #define CROWPANEL_ADV_CMD_ACTIVATE 250
+#endif
+
 static inline void crowpanel_adv_bl_cmd(uint8_t cmd) {
   Wire.beginTransmission(CROWPANEL_ADV_BL_ADDR);
   Wire.write(cmd);
@@ -49,11 +59,16 @@ static inline void crowpanel_adv_panel_power_on() {
     Wire.beginTransmission(0x30); bool a30 = (Wire.endTransmission() == 0);
     Wire.beginTransmission(0x5D); bool a5d = (Wire.endTransmission() == 0);
     if (a30 && a5d) break;
-    crowpanel_adv_bl_cmd(250);                 // activate
+    crowpanel_adv_bl_cmd(CROWPANEL_ADV_CMD_ACTIVATE);
     pinMode(1, OUTPUT); digitalWrite(1, LOW); delay(120); pinMode(1, INPUT);
     delay(100);
   }
+#ifdef CROWPANEL_ADV_V11
+  crowpanel_adv_bl_cmd(0x10);                   // enable
+  crowpanel_adv_bl_cmd(0x10);                   // level: brightest
+#else
   crowpanel_adv_bl_cmd(0);                      // 0 = brightest, before init
+#endif
 }
 
 class CrowPanelDisplay : public lgfx::LGFX_Device {
@@ -89,7 +104,13 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.pin_vsync   = GPIO_NUM_41;
       cfg.pin_hsync   = GPIO_NUM_40;
       cfg.pin_pclk    = GPIO_NUM_39;
-      cfg.freq_write  = 16000000;  // 16 MHz PCLK (21 MHz underruns at this panel)
+      // LovyanGFX streams the framebuffer straight from PSRAM (no bounce buffer,
+      // unlike esp_lcd), so PSRAM contention from WiFi/flash underruns the DMA
+      // and the image shears. Lower PCLK = more headroom. Tune with the flag.
+#ifndef CROWPANEL_ADV_PCLK_HZ
+  #define CROWPANEL_ADV_PCLK_HZ 12000000
+#endif
+      cfg.freq_write  = CROWPANEL_ADV_PCLK_HZ;
       cfg.hsync_polarity = 0; cfg.hsync_front_porch = 8; cfg.hsync_pulse_width = 4; cfg.hsync_back_porch = 8;
       cfg.vsync_polarity = 0; cfg.vsync_front_porch = 8; cfg.vsync_pulse_width = 4; cfg.vsync_back_porch = 8;
       cfg.pclk_idle_high = 1;
@@ -174,7 +195,11 @@ class CrowPanelButton {
     gfx_->drawRect(x_ - w_ / 2, y_ - h_ / 2, w_, h_, outline_);
     gfx_->setTextColor(text, fill);
     gfx_->setTextSize(text_size_);
-    gfx_->drawCentreString(long_name.length() ? long_name : label_, x_ + label_dx_, y_ - 4 + label_dy_);
+    // Middle datum so the label stays vertically centred at any KEY_H/textsize
+    // (the TFT_eSPI-style top datum + fixed -4 only fits 22px keys).
+    gfx_->setTextDatum(lgfx::middle_center);
+    gfx_->drawString(long_name.length() ? long_name : label_, x_ + label_dx_, y_ + label_dy_);
+    gfx_->setTextDatum(lgfx::top_left);
   }
   bool contains(int16_t x, int16_t y) const {
     return x >= x_ - w_ / 2 && x < x_ + w_ / 2 && y >= y_ - h_ / 2 && y < y_ + h_ / 2;

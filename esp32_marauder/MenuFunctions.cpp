@@ -777,6 +777,43 @@ void MenuFunctions::main(uint32_t currentTime)
           wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF ||
           wifi_scan_obj.currentScanMode == WIFI_CONNECTED ||
           wifi_scan_obj.currentScanMode == OTA_UPDATE;
+      #ifdef MARAUDER_CROWPANEL_ADV
+      // Big touch panel: tap a key to run it, swipe vertically to page. The
+      // Pancake up/select/down screen thirds (with hold-repeat) made a tap
+      // cycle through items instead of picking the one under the finger.
+      if (menu_navigation_active) {
+        static int16_t tap_key = -1, tap_y0 = -1, tap_y1 = -1;
+        menu_button = -1;
+        if (pressed) {
+          if (tap_y0 < 0) {
+            tap_y0 = t_y;
+            tap_key = -1;
+            for (uint8_t b = 0; b < BUTTON_SCREEN_LIMIT; b++)
+              if (display_obj.key[b].contains(t_x, t_y)) { tap_key = b; break; }
+          }
+          tap_y1 = t_y;
+        } else if (tap_y0 >= 0) {
+          const int16_t dy = tap_y1 - tap_y0;
+          const int size = current_menu->list->size();
+          if (abs(dy) > KEY_H) {
+            // Finger moved up = next page, down = previous page.
+            int start = this->menu_start_index + (dy < 0 ? BUTTON_SCREEN_LIMIT : -BUTTON_SCREEN_LIMIT);
+            start = constrain(start, 0, max(0, size - BUTTON_SCREEN_LIMIT));
+            if (start != this->menu_start_index) {
+              current_menu->selected = start;
+              this->buildButtons(current_menu, start);
+              this->displayCurrentMenu(start);
+            }
+          } else if (tap_key >= 0 && this->menu_start_index + tap_key < size) {
+            current_menu->selected = this->menu_start_index + tap_key;
+            menu_button = SELECT_BUTTON;
+          }
+          tap_y0 = -1;
+        }
+      } else {
+        menu_button = display_obj.menuButton(&t_x, &t_y, pressed);
+      }
+      #else
       if (menu_navigation_active) {
         const int8_t held_button =
             display_obj.menuButton(&t_x, &t_y, pressed, true);
@@ -808,6 +845,7 @@ void MenuFunctions::main(uint32_t currentTime)
         menu_touch_button = -1;
         menu_button = display_obj.menuButton(&t_x, &t_y, pressed);
       }
+      #endif
 
       if (menu_button >= 0) {
         if (menu_button == UP_BUTTON) {
