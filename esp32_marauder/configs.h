@@ -3621,6 +3621,11 @@
   #define KEY_TEXTSIZE 2
   #define BUTTON_PADDING 40
   #define BUTTON_SCREEN_LIMIT 8
+  // All 14 2.4GHz channels on one screen (Pancake's 7 forced paging). The
+  // channel-activity x spacing is kRowW/(CHAN_PER_PAGE*2), so this also narrows
+  // the bars to fit the 800px width.
+  #undef CHAN_PER_PAGE
+  #define CHAN_PER_PAGE 14
   // Scan text view: (480 - kScanBodyTop 72) / 16px lines (CrowPanelLayout.h).
   #ifdef MAX_SCREEN_BUFFER
     #undef MAX_SCREEN_BUFFER

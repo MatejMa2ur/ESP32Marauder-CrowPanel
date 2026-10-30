@@ -6115,12 +6115,12 @@ bool crowpanelOwnTouchMode(uint8_t mode) {
 // Home tile subtitle, keyed by the main menu node's icon.
 const char* crowpanelTileSubtitle(uint8_t icon) {
   switch (icon) {
-    case GENERAL_APPS: return "Passive WiFi & BLE recon";
-    case WIFI:         return "Scan / sniff / attack";
-    case BLUETOOTH:    return "Scan / spam / detect";
-    case GPS_MENU:     return "Fix / data / POI";
-    case DEVICE:       return "Settings / info / update";
-    case REBOOT:       return "Restart device";
+    case GENERAL_APPS: return "Passively list nearby WiFi & BLE";
+    case WIFI:         return "Scan, sniff & attack WiFi networks";
+    case BLUETOOTH:    return "Scan, spam & detect BLE devices";
+    case GPS_MENU:     return "GPS fix, live data & POI logging";
+    case DEVICE:       return "Settings, info & firmware update";
+    case REBOOT:       return "Restart the device";
     default:           return "";
   }
 }
@@ -6199,7 +6199,8 @@ void MenuFunctions::crowpanelDrawRow(uint8_t row, bool pressed) {
     return;
   MenuNode node = current_menu->list->get(this->crowpanel_rows[row]);
   if (this->crowpanelHome()) {
-    // Node colour only tints the tile's accent strip.
+    // Per-item node colour tints the tile's accent strip + icon (Recon, WiFi,
+    // Bluetooth, Device, Reboot each keep their own colour).
     crowpanel::ui::drawTile(display_obj.tft, crowpanel::tileRect(row), node.name.c_str(),
                             crowpanelTileSubtitle(node.icon), this->getColor(node.color),
                             node.icon != 255 ? menu_icons[node.icon] : nullptr, pressed);

@@ -4,16 +4,16 @@
 
 namespace crowpanel {
 
-// RGB565 palette
-constexpr uint16_t kBg = 0x0000;
-constexpr uint16_t kPanel = 0x0861;
-constexpr uint16_t kEdge = 0x2945;
-constexpr uint16_t kText = 0xE77C;
-constexpr uint16_t kMuted = 0x9D73;
-constexpr uint16_t kAccent = 0x72DF;
-constexpr uint16_t kWarn = 0xF5ED;
-constexpr uint16_t kDanger = 0xFBF0;
-constexpr uint16_t kPressed = 0x18C7;
+// RGB565 palette -- Cod3rs theme (near-black bg, purple accent, light mono text)
+constexpr uint16_t kBg = 0x0862;      // #0e0e12 near-black
+constexpr uint16_t kPanel = 0x18A4;   // #16141f dark purple-tinted surface/card
+constexpr uint16_t kEdge = 0x2948;    // #2d2a40 muted purple border
+constexpr uint16_t kText = 0xF79E;    // #f3f3f3 primary text
+constexpr uint16_t kMuted = 0x8C54;   // #8f8aa8 lavender-grey secondary text
+constexpr uint16_t kAccent = 0x72DF;  // #755AFB Cod3rs purple accent
+constexpr uint16_t kWarn = 0xF5ED;    // amber (warnings)
+constexpr uint16_t kDanger = 0xFBF0;  // red (faults/stop)
+constexpr uint16_t kPressed = 0x18C7; // #1a1838 selected/pressed tint
 
 struct Rect {
   int16_t x, y, w, h;

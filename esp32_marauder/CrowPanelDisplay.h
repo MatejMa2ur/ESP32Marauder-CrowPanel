@@ -24,12 +24,9 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
-#ifdef CROWPANEL_ADV_ESP_LCD_BUS
-  #include <esp_lcd_panel_rgb.h>
-  #include <esp_lcd_panel_ops.h>
-#else
-  #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
-#endif
+#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#include <esp_lcd_panel_rgb.h>
+#include <esp_lcd_panel_ops.h>
 #include <Wire.h>
 
 // Backlight on this V1.2/V1.3 board is a small MCU at I2C 0x30 (bus shared with
@@ -116,82 +113,66 @@ static inline void crowpanel_adv_set_brightness(uint8_t percent) {
 #endif
 
 #ifdef CROWPANEL_ADV_ESP_LCD_BUS
-// Opt-in (-DCROWPANEL_ADV_ESP_LCD_BUS): needs CONFIG_SPIRAM_FETCH_INSTRUCTIONS +
-// CONFIG_SPIRAM_RODATA (as Marauder-GD). Without them every flash access disables
-// the cache while the IRAM-safe bounce ISR still reads the PSRAM framebuffer ->
-// "Cache disabled but cached memory region accessed" (SPIFFS mount at boot).
-// RGB bus backed by ESP-IDF esp_lcd with bounce buffers. LovyanGFX's Bus_RGB
-// streams the framebuffer straight from PSRAM by GDMA, so PSRAM contention
-// underruns it (image shifts, colours swap, panel drops into its self-test
-// cycle). esp_lcd copies PSRAM -> internal-RAM bounce buffers and DMAs from
-// those. Panel_RGB only needs the framebuffer, via getDMABuffer(); the rest of
-// IBus is unused for an RGB panel. Timings/pins as Marauder-GD main/board.cpp.
-struct Bus_EspLcdRGB : public lgfx::IBus {
-  lgfx::bus_type_t busType(void) const override { return lgfx::bus_type_t::bus_unknown; }
-
+// Needs CONFIG_SPIRAM_FETCH_INSTRUCTIONS + CONFIG_SPIRAM_RODATA (as Marauder-GD).
+// Without them every flash access disables the cache while the bounce ISR still
+// reads the PSRAM framebuffer -> "Cache disabled but cached memory region
+// accessed" (SPIFFS mount at boot).
+//
+// RGB bus backed by ESP-IDF esp_lcd with internal-SRAM bounce buffers. LovyanGFX's
+// stock Bus_RGB streams the framebuffer straight from PSRAM by GDMA, so PSRAM
+// contention underruns it (image shears, colours swap, panel self-test cycle).
+// esp_lcd copies PSRAM -> bounce buffers and DMAs from those.
+//
+// Subclass Bus_RGB (NOT a bare IBus): Panel_RGB only sets up its RGB565 colour
+// write path when the bus is a Bus_RGB, so a bare IBus renders the wrong hues
+// (white->green, purple->pink). We override only init/getDMABuffer/release to
+// swap the scanout to esp_lcd; the inherited config_t carries pins/timings.
+class CrowPanelBus : public lgfx::Bus_RGB {
+  esp_lcd_panel_handle_t _panel_h = nullptr;
+  void* _fb = nullptr;
+ public:
   bool init(void) override {
-    if (_fb) return true;
-    esp_lcd_rgb_panel_config_t cfg{};
-    cfg.clk_src = LCD_CLK_SRC_DEFAULT;
-    cfg.data_width = 16;
-    cfg.bits_per_pixel = 16;
-    cfg.num_fbs = 1;
-    cfg.bounce_buffer_size_px = 800 * 10;  // 2 x 16 KB internal DMA RAM
-    cfg.dma_burst_size = 64;
-    cfg.hsync_gpio_num = 40;
-    cfg.vsync_gpio_num = 41;
-    cfg.de_gpio_num = 42;
-    cfg.pclk_gpio_num = 39;
-    cfg.disp_gpio_num = -1;
-    // d0..d4 = B0..B4, d5..d10 = G0..G5, d11..d15 = R0..R4
-    const int pins[] = {21, 47, 48, 45, 38, 9, 10, 11, 12, 13, 14, 7, 17, 18, 3, 46};
-    for (int i = 0; i < 16; ++i) cfg.data_gpio_nums[i] = pins[i];
-    cfg.timings.pclk_hz = CROWPANEL_ADV_PCLK_HZ;
-    cfg.timings.h_res = 800;
-    cfg.timings.v_res = 480;
-    cfg.timings.hsync_pulse_width = 4; cfg.timings.hsync_back_porch = 8; cfg.timings.hsync_front_porch = 8;
-    cfg.timings.vsync_pulse_width = 4; cfg.timings.vsync_back_porch = 8; cfg.timings.vsync_front_porch = 8;
-    cfg.timings.flags.pclk_active_neg = 1;
+    if (_panel_h) return _fb != nullptr;   // one-shot, like the LGFX init guard
+    const auto& c = config();
+    esp_lcd_rgb_panel_config_t cfg = {};
+    cfg.clk_src               = LCD_CLK_SRC_DEFAULT;
+    cfg.data_width            = 16;
+    cfg.bits_per_pixel        = 16;
+    cfg.num_fbs               = 1;
+    cfg.bounce_buffer_size_px = 800 * 10;   // two 16 KB internal-SRAM buffers
+    cfg.dma_burst_size        = 64;
+    cfg.hsync_gpio_num        = c.pin_hsync;
+    cfg.vsync_gpio_num        = c.pin_vsync;
+    cfg.de_gpio_num           = c.pin_henable;
+    cfg.pclk_gpio_num         = c.pin_pclk;
+    cfg.disp_gpio_num         = -1;
+    // LovyanGFX stores RGB565 byte-swapped (big-endian) in the framebuffer, but
+    // esp_lcd scans it out little-endian -> every colour's two bytes are swapped
+    // (dark->magenta, white->green). Rotate the 16 data lines by one byte so the
+    // panel latches the bytes in LovyanGFX's order. (GD uses LVGL's native
+    // little-endian RGB565, so it needs no rotation with the same pins.)
+    for (int i = 0; i < 16; ++i) cfg.data_gpio_nums[i] = c.pin_data[(i + 8) & 15];
+    cfg.timings.pclk_hz           = c.freq_write;
+    cfg.timings.h_res             = 800;
+    cfg.timings.v_res             = 480;
+    cfg.timings.hsync_pulse_width = c.hsync_pulse_width;
+    cfg.timings.hsync_back_porch  = c.hsync_back_porch;
+    cfg.timings.hsync_front_porch = c.hsync_front_porch;
+    cfg.timings.vsync_pulse_width = c.vsync_pulse_width;
+    cfg.timings.vsync_back_porch  = c.vsync_back_porch;
+    cfg.timings.vsync_front_porch = c.vsync_front_porch;
+    cfg.timings.flags.pclk_active_neg = c.pclk_active_neg;  // 1, as Marauder-GD
     cfg.flags.fb_in_psram = 1;
-    esp_err_t err = esp_lcd_new_rgb_panel(&cfg, &_h);
-    if (err == ESP_OK) err = esp_lcd_panel_reset(_h);
-    if (err == ESP_OK) err = esp_lcd_panel_init(_h);
-    if (err == ESP_OK) err = esp_lcd_rgb_panel_get_frame_buffer(_h, 1, &_fb);
-    if (err != ESP_OK) {
-      Serial.printf("CrowPanel: esp_lcd RGB init failed: %s\n", esp_err_to_name(err));
-      _fb = nullptr;
-      return false;
-    }
-    return true;
+    if (esp_lcd_new_rgb_panel(&cfg, &_panel_h) != ESP_OK) return false;
+    esp_lcd_panel_reset(_panel_h);
+    esp_lcd_panel_init(_panel_h);           // starts the bounce-buffered scanout
+    if (esp_lcd_rgb_panel_get_frame_buffer(_panel_h, 1, &_fb) != ESP_OK) _fb = nullptr;
+    return _fb != nullptr;
   }
-  void release(void) override {}
-
-  void beginTransaction(void) override {}
-  void endTransaction(void) override {}
-  void wait(void) override {}
-  bool busy(void) const override { return false; }
-
-  void flush(void) override {}
-  bool writeCommand(uint32_t, uint_fast8_t) override { return true; }
-  void writeData(uint32_t, uint_fast8_t) override {}
-  void writeDataRepeat(uint32_t, uint_fast8_t, uint32_t) override {}
-  void writePixels(lgfx::pixelcopy_t*, uint32_t) override {}
-  void writeBytes(const uint8_t*, uint32_t, bool, bool) override {}
-
-  void initDMA(void) override {}
-  void addDMAQueue(const uint8_t*, uint32_t) override {}
-  void execDMAQueue(void) override {}
   uint8_t* getDMABuffer(uint32_t) override { return (uint8_t*)_fb; }
-
-  void beginRead(void) override {}
-  void endRead(void) override {}
-  uint32_t readData(uint_fast8_t) override { return 0; }
-  bool readBytes(uint8_t*, uint32_t, bool) override { return false; }
-  void readPixels(void*, lgfx::pixelcopy_t*, uint32_t) override {}
-
- private:
-  esp_lcd_panel_handle_t _h = nullptr;
-  void *_fb = nullptr;
+  void release(void) override {
+    if (_panel_h) { esp_lcd_panel_del(_panel_h); _panel_h = nullptr; _fb = nullptr; }
+  }
 };
 #endif  // CROWPANEL_ADV_ESP_LCD_BUS
 
@@ -255,7 +236,7 @@ static inline void crowpanel_adv_lcd_watchdog_report() {
 
 class CrowPanelDisplay : public lgfx::LGFX_Device {
 #ifdef CROWPANEL_ADV_ESP_LCD_BUS
-  Bus_EspLcdRGB   _bus;
+  CrowPanelBus    _bus;
 #else
   lgfx::Bus_RGB   _bus;
 #endif
@@ -275,7 +256,6 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.use_psram = 1;  // 800*480*2 = 768 KB framebuffer lives in PSRAM
       _panel.config_detail(cfg);
     }
-#ifndef CROWPANEL_ADV_ESP_LCD_BUS
     {
       auto cfg = _bus.config();
       cfg.panel = &_panel;
@@ -296,7 +276,6 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.pclk_idle_high = 1;
       _bus.config(cfg);
     }
-#endif
     _panel.setBus(&_bus);
     setPanel(&_panel);
   }

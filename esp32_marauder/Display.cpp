@@ -381,7 +381,7 @@ void Display::drawBootSplash() {
     tft.setTextDatum(lgfx::middle_center);
     tft.setFont(&fonts::Font2);
     tft.setTextColor(crowpanel::kMuted, crowpanel::kBg);
-    tft.drawString("Cod3rs . CrowPanel 5.0", width / 2, height / 2 + 6);
+    tft.drawString("ESP32 - Marauder", width / 2, height / 2 + 6);
 
     // Loading-bar track (drawBootProgress fills it).
     boot_bar_w_ = width * 60 / 100;
