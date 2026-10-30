@@ -687,13 +687,9 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       const int16_t body_top = 48;
     #endif
     display_obj.tft.fillRect(0, body_top, RECON_SCREEN_WIDTH, RECON_SCREEN_HEIGHT - body_top, TFT_BLACK);
-    #ifdef MARAUDER_CROWPANEL_ADV
-      // ponytail: ReconMission exposes no current-channel member (only per-channel
-      // activity), so channel 0 hides the channel readout.
-      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
-                                active_mode == ReconMode::WIFI_RECON ? "WiFi recon" : "BLE recon",
-                                0, true);
-    #endif
+    // ponytail: no scan banner here -- Recon has no single current channel (it hops
+    // and counts per-channel), and a fixed-y banner collided with the relation
+    // header. The Cod3rs palette + styled live rows below carry the restyle.
     #if RECON_SCREEN_HEIGHT < 160
       const int16_t graph_x = 4;
       const int16_t graph_y = body_top + 2;
