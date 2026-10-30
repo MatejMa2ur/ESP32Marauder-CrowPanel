@@ -24,9 +24,12 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
-#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
-#include <esp_lcd_panel_rgb.h>
-#include <esp_lcd_panel_ops.h>
+#ifdef CROWPANEL_ADV_ESP_LCD_BUS
+  #include <esp_lcd_panel_rgb.h>
+  #include <esp_lcd_panel_ops.h>
+#else
+  #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#endif
 #include <Wire.h>
 
 // Backlight on this V1.2/V1.3 board is a small MCU at I2C 0x30 (bus shared with
@@ -86,58 +89,6 @@ static inline void crowpanel_adv_panel_power_on() {
 #endif
 }
 
-// ponytail: LovyanGFX's stock Bus_RGB streams the RGB DMA straight from the
-// PSRAM framebuffer with NO bounce buffer, so PSRAM contention from WiFi/flash
-// starves the pixel stream -> rolling colour bars (or a white screen at low
-// PCLK). Hand scanout to the native esp_lcd RGB driver with a 10-line internal-
-// SRAM bounce buffer -- the DMA then reads from SRAM and an ISR refills it from
-// PSRAM, so contention can't starve it. Config mirrors the known-good
-// Marauder-GD main/board.cpp. LovyanGFX keeps doing ALL the drawing; it finds
-// the framebuffer through the bus's virtual getDMABuffer(), which we point at
-// esp_lcd's framebuffer -- so no Marauder drawing code changes.
-class CrowPanelBus : public lgfx::Bus_RGB {
-  esp_lcd_panel_handle_t _panel_h = nullptr;
-  void* _fb = nullptr;
- public:
-  bool init(void) override {
-    if (_panel_h) return _fb != nullptr;   // one-shot, like the LGFX init guard
-    const auto& c = config();
-    esp_lcd_rgb_panel_config_t cfg = {};
-    cfg.clk_src               = LCD_CLK_SRC_DEFAULT;
-    cfg.data_width            = 16;
-    cfg.bits_per_pixel        = 16;
-    cfg.num_fbs               = 1;
-    cfg.bounce_buffer_size_px = 800 * 10;   // two 16 KB internal-SRAM buffers
-    cfg.dma_burst_size        = 64;
-    cfg.hsync_gpio_num        = c.pin_hsync;
-    cfg.vsync_gpio_num        = c.pin_vsync;
-    cfg.de_gpio_num           = c.pin_henable;
-    cfg.pclk_gpio_num         = c.pin_pclk;
-    cfg.disp_gpio_num         = -1;
-    for (int i = 0; i < 16; ++i) cfg.data_gpio_nums[i] = c.pin_data[i];
-    cfg.timings.pclk_hz           = c.freq_write;
-    cfg.timings.h_res             = 800;
-    cfg.timings.v_res             = 480;
-    cfg.timings.hsync_pulse_width = c.hsync_pulse_width;
-    cfg.timings.hsync_back_porch  = c.hsync_back_porch;
-    cfg.timings.hsync_front_porch = c.hsync_front_porch;
-    cfg.timings.vsync_pulse_width = c.vsync_pulse_width;
-    cfg.timings.vsync_back_porch  = c.vsync_back_porch;
-    cfg.timings.vsync_front_porch = c.vsync_front_porch;
-    cfg.timings.flags.pclk_active_neg = c.pclk_active_neg;  // 1, as Marauder-GD
-    cfg.flags.fb_in_psram = 1;
-    if (esp_lcd_new_rgb_panel(&cfg, &_panel_h) != ESP_OK) return false;
-    esp_lcd_panel_reset(_panel_h);
-    esp_lcd_panel_init(_panel_h);           // starts the bounce-buffered scanout
-    if (esp_lcd_rgb_panel_get_frame_buffer(_panel_h, 1, &_fb) != ESP_OK) _fb = nullptr;
-    return _fb != nullptr;
-  }
-  uint8_t* getDMABuffer(uint32_t) override { return (uint8_t*)_fb; }
-  void release(void) override {
-    if (_panel_h) { esp_lcd_panel_del(_panel_h); _panel_h = nullptr; _fb = nullptr; }
-  }
-};
-
 // percent 10..100. V1.1: enable (0x10) then one of 5 levels; V1.2/1.3: single
 // byte, 0 = brightest. Mirrors board_brightness() in Marauder-GD.
 static inline void crowpanel_adv_set_brightness(uint8_t percent) {
@@ -156,10 +107,12 @@ static inline void crowpanel_adv_set_brightness(uint8_t percent) {
 // PCLK for the RGB panel. With the esp_lcd bus the bounce buffers absorb PSRAM
 // contention, so it can match Marauder-GD; LovyanGFX's Bus_RGB has no buffer, so
 // it runs slower for headroom. Tune with the flag.
-// CrowPanelBus is always the esp_lcd bounce-buffered bus, so 16 MHz (Marauder-GD's
-// proven value) is stable. Override the flag to retune.
 #ifndef CROWPANEL_ADV_PCLK_HZ
-  #define CROWPANEL_ADV_PCLK_HZ 16000000
+  #ifdef CROWPANEL_ADV_ESP_LCD_BUS
+    #define CROWPANEL_ADV_PCLK_HZ 16000000
+  #else
+    #define CROWPANEL_ADV_PCLK_HZ 12000000
+  #endif
 #endif
 
 #ifdef CROWPANEL_ADV_ESP_LCD_BUS
@@ -242,8 +195,70 @@ struct Bus_EspLcdRGB : public lgfx::IBus {
 };
 #endif  // CROWPANEL_ADV_ESP_LCD_BUS
 
+#ifndef CROWPANEL_ADV_ESP_LCD_BUS
+#include <esp_timer.h>
+#include <esp_rom_sys.h>
+#include <soc/lcd_cam_struct.h>
+#include <soc/gdma_struct.h>
+#include <soc/gdma_channel.h>
+// LovyanGFX's Bus_RGB re-arms GDMA only from its LCD VSYNC_END ISR
+// (Bus_RGB.inl:93-97) and never touches LCD_CAM after init(). If a PSRAM
+// underrun stalls the LCD engine there is no more VSYNC, so nothing restarts
+// and the ST7262 falls into its self-test colour cycle. Polled every 100 ms
+// from an esp_timer: if the GDMA current-descriptor
+// pointer has not moved for 3 polls (~9 frames), restart LCD+GDMA the way
+// esp_lcd's lcd_rgb_panel_start_transmission() does. Framebuffer untouched.
+static volatile uint32_t crowpanel_adv_lcd_restarts = 0;
+static inline void crowpanel_adv_lcd_watchdog(void *) {
+  static int ch = -1;
+  static uint32_t last_dscr = 0, same = 0, fails = 0, last_us = 0;
+  if (ch < 0) ch = lgfx::search_dma_out_ch(SOC_GDMA_TRIG_PERIPH_LCD0);  // same lookup as Bus_RGB::init
+  if (ch < 0) return;
+  auto &out = GDMA.channel[ch].out;
+  uint32_t d = out.dscr;  // OUT_DSCR: current outlink descriptor address
+  same = (d == last_dscr) ? same + 1 : 0;
+  if (d != last_dscr) fails = 0;  // descriptor advancing: panel alive
+  last_dscr = d;
+  if (same < 3) return;
+  same = 0;
+  // Dead panel: after 5 restarts with no progress in between, retry at 1 Hz.
+  uint32_t now = (uint32_t)esp_timer_get_time();
+  if (fails >= 5 && now - last_us < 1000000) return;
+  last_us = now;
+  fails++;
+  // link.addr still holds &_dmadesc_restart, written by the VSYNC ISR. ponytail:
+  // that node skips the FIFO prefill, so the first frame after a restart is
+  // shifted ~17 px; the next VSYNC re-sync fixes it.
+  uint32_t link = out.link.addr;
+  LCD_CAM.lcd_user.lcd_start = 0;           // lcd_ll_stop
+  LCD_CAM.lcd_user.lcd_update = 1;
+  out.conf0.out_rst = 1;                    // gdma_reset
+  out.conf0.out_rst = 0;
+  LCD_CAM.lcd_misc.lcd_afifo_reset = 1;     // lcd_ll_fifo_reset (self clear)
+  out.link.addr = link;
+  out.link.start = 1;
+  esp_rom_delay_us(1);                      // let DMA prefill the LCD FIFO
+  LCD_CAM.lcd_user.lcd_update = 1;          // lcd_ll_start
+  LCD_CAM.lcd_user.lcd_start = 1;
+  crowpanel_adv_lcd_restarts = crowpanel_adv_lcd_restarts + 1;
+}
+// Call from loop(): the timer callback must not print.
+static inline void crowpanel_adv_lcd_watchdog_report() {
+  static uint32_t seen = 0;
+  uint32_t n = crowpanel_adv_lcd_restarts;
+  if (n != seen) {
+    seen = n;
+    Serial.printf("CrowPanel: LCD stalled, restarted (#%u)\n", (unsigned)n);
+  }
+}
+#endif
+
 class CrowPanelDisplay : public lgfx::LGFX_Device {
-  CrowPanelBus    _bus;
+#ifdef CROWPANEL_ADV_ESP_LCD_BUS
+  Bus_EspLcdRGB   _bus;
+#else
+  lgfx::Bus_RGB   _bus;
+#endif
   lgfx::Panel_RGB _panel;
 
  public:
@@ -275,15 +290,10 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.pin_vsync   = GPIO_NUM_41;
       cfg.pin_hsync   = GPIO_NUM_40;
       cfg.pin_pclk    = GPIO_NUM_39;
-      // Pixel clock. CrowPanelBus hands scanout to esp_lcd with a bounce buffer,
-      // so 16 MHz (Marauder-GD's proven value) is stable; the old bufferless
-      // path needed <=12 MHz and still sheared. Override the flag to retune.
-#ifndef CROWPANEL_ADV_PCLK_HZ
-  #define CROWPANEL_ADV_PCLK_HZ 16000000
-#endif
       cfg.freq_write  = CROWPANEL_ADV_PCLK_HZ;
       cfg.hsync_polarity = 0; cfg.hsync_front_porch = 8; cfg.hsync_pulse_width = 4; cfg.hsync_back_porch = 8;
       cfg.vsync_polarity = 0; cfg.vsync_front_porch = 8; cfg.vsync_pulse_width = 4; cfg.vsync_back_porch = 8;
+      cfg.pclk_idle_high = 1;
       _bus.config(cfg);
     }
 #endif
@@ -303,6 +313,15 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
     if (ready) return true;
     crowpanel_adv_panel_power_on();
     ready = lgfx::LGFX_Device::init();
+#ifndef CROWPANEL_ADV_ESP_LCD_BUS
+    if (ready) {
+      esp_timer_create_args_t a = {};
+      a.callback = crowpanel_adv_lcd_watchdog;
+      a.name = "lcd_wd";
+      esp_timer_handle_t t;
+      if (esp_timer_create(&a, &t) == ESP_OK) esp_timer_start_periodic(t, 100000);
+    }
+#endif
     return ready;
   }
 

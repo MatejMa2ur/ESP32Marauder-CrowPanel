@@ -6108,6 +6108,7 @@ bool crowpanelOwnTouchMode(uint8_t mode) {
          mode == BT_SCAN_FLOCK || mode == WIFI_SCAN_PROBE ||
          mode == WIFI_SCAN_DEAUTH || mode == BT_SCAN_ANALYZER ||
          mode == WIFI_SCAN_CHAN_ACT || mode == ESP_UPDATE ||
+         mode == WIFI_SCAN_ACTIVE_EAPOL || mode == WIFI_SCAN_ACTIVE_LIST_EAPOL ||
          mode == LV_JOIN_WIFI || mode == LV_ADD_SSID;
 }
 
@@ -6280,14 +6281,14 @@ void MenuFunctions::crowpanelTouch(bool pressed, uint16_t t_x, uint16_t t_y) {
         this->crowpanel_touch_target = kTouchSwallow;
         this->crowpanelStopScan();
       }
-      else if (this->crowpanel_touch_target < crowpanel::kRowsPerPage)
+      else if (this->crowpanel_touch_target < crowpanel::kMenuSlots)
         this->crowpanelDrawRow(this->crowpanel_touch_target, true);
       return;
     }
     // Finger moving: a swipe drops the row tint and cancels the tap.
     this->crowpanel_touch_x1 = t_x;
     this->crowpanel_touch_y1 = t_y;
-    if (this->crowpanel_touch_target < crowpanel::kRowsPerPage &&
+    if (this->crowpanel_touch_target < crowpanel::kMenuSlots &&
         abs(this->crowpanel_touch_y1 - this->crowpanel_touch_y0) > kSwipeMin) {
       this->crowpanelDrawRow(this->crowpanel_touch_target, false);
       this->crowpanel_touch_target = kTouchEmpty;
@@ -6300,7 +6301,7 @@ void MenuFunctions::crowpanelTouch(bool pressed, uint16_t t_x, uint16_t t_y) {
   this->crowpanel_touch_target = kTouchIdle;
   if (target == kTouchIdle || target == kTouchSwallow)
     return;
-  if (target < crowpanel::kRowsPerPage)
+  if (target < crowpanel::kMenuSlots)
     this->crowpanelDrawRow(target, false);
 
   const int16_t dy = this->crowpanel_touch_y1 - this->crowpanel_touch_y0;
@@ -6319,8 +6320,6 @@ void MenuFunctions::crowpanelTouch(bool pressed, uint16_t t_x, uint16_t t_y) {
     return;
 
   if (target == kTouchBack) {
-    if (scanning)
-      this->crowpanelStopScan();
     if (this->crowpanel_back >= 0 && this->crowpanel_back < current_menu->list->size())
       current_menu->list->get(this->crowpanel_back).callable();
   }
@@ -6384,7 +6383,7 @@ void MenuFunctions::displayCurrentMenu(int start_index)
     else
       crowpanel::ui::drawHeader(display_obj.tft, current_menu->name.c_str(),
                                 HARDWARE_NAME "  " MARAUDER_VERSION,
-                                this->crowpanel_back >= 0, this->crowpanelScanRunning());
+                                !this->crowpanelScanRunning() && this->crowpanel_back >= 0, this->crowpanelScanRunning());
     for (uint8_t r = 0; r < this->crowpanel_row_count; r++)
       this->crowpanelDrawRow(r, false);
     crowpanel::ui::drawFooter(display_obj.tft, this->crowpanel_page, this->crowpanelPages());

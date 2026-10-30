@@ -819,25 +819,13 @@ void Display::crowpanelStatsRow(const crowpanel::Rect* rects, uint8_t n,
 void Display::crowpanelStatsUpdate(uint8_t i, const char* value) {
   if (i >= crow_stat_n) return;
   const crowpanel::Rect r = crow_stat_rect[i];
-  // Redraw only the value half of the card; label/border are untouched.
-  tft.fillRect(r.x + 2, r.y + r.h / 2, r.w - 4, r.h / 2 - 2, crowpanel::kPanel);
-  char buf[32];
-  tft.setFont(&fonts::FreeSansBold12pt7b);
-  crowpanel::ui::fit(tft, value, r.w - 20, buf, sizeof(buf));
-  tft.setTextColor(crow_stat_color[i], crowpanel::kPanel);
-  tft.setTextDatum(lgfx::bottom_left);
-  tft.drawString(buf, r.x + 10, r.y + r.h - 8);
-  crowpanel::ui::restore(tft);
+  crowpanel::ui::drawStatValue(tft, r, value, crow_stat_color[i]);  // label/border untouched
 }
 
 bool Display::crowpanelStatsDue(uint32_t now) {
   if (now - crow_stats_last_ms < 500) return false;
   crow_stats_last_ms = now;
   return true;
-}
-
-void Display::crowpanelStatsClear() {
-  crow_stat_n = 0;
 }
 #endif
 

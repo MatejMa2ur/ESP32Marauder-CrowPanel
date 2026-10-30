@@ -321,7 +321,6 @@ uint32_t currentTime  = 0;
 
 void setup()
 {
-  ets_printf("\n>>> SETUP TOP reached <<<\n");
   randomSeed(esp_random());
   
   #ifndef DEVELOPER
@@ -526,6 +525,9 @@ void setup()
 void loop()
 {
   currentTime = millis();
+  #if defined(MARAUDER_CROWPANEL_ADV) && !defined(CROWPANEL_ADV_ESP_LCD_BUS)
+    crowpanel_adv_lcd_watchdog_report();
+  #endif
   bool mini = false;
 
   #ifdef SCREEN_BUFFER
