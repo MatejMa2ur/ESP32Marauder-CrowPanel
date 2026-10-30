@@ -118,9 +118,9 @@ uint8_t Display::updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold) {
             // which already line up with the panel in a landscape rotation.
             // ponytail: if a future mount/rotation disagrees, flip axes here per
             // tft.getRotation() -- this is the on-device touch tuning knob.
-            if (raw_x >= SCREEN_WIDTH || raw_y >= SCREEN_HEIGHT) return 0;
-            *x = raw_x;
-            *y = raw_y;
+            // Clamp, don't drop: an edge sample must not read as a release.
+            *x = raw_x < SCREEN_WIDTH ? raw_x : SCREEN_WIDTH - 1;
+            *y = raw_y < SCREEN_HEIGHT ? raw_y : SCREEN_HEIGHT - 1;
             return 1;
           #endif
 
@@ -304,15 +304,15 @@ void Display::RunSetup() {
     this->touchscreen.setRotation(0);
   #endif
 
-  #ifdef HAS_CAP_TOUCH
-    #ifdef MARAUDER_CROWPANEL_ADV
-      gt911_init();
-    #else
-      ft6336_init();
-    #endif
+  #if defined(HAS_CAP_TOUCH) && !defined(MARAUDER_CROWPANEL_ADV)
+    ft6336_init();
   #endif
-  
+
   tft.init();
+
+  #if defined(HAS_CAP_TOUCH) && defined(MARAUDER_CROWPANEL_ADV)
+    gt911_init();  // after tft.init(): panel power-on activates the GT911 (V1.1 cmd 0x19)
+  #endif
 
   tft.setRotation(SCREEN_ORIENTATION);
 

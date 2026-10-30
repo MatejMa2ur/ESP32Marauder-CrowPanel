@@ -46,6 +46,7 @@ static void _gt911_write_reg(uint16_t reg, uint8_t value) {
 
 static void gt911_init() {
     Wire.begin(CTP_SDA, CTP_SCL, 400000U);
+    Wire.setClock(400000U);  // begin() is a no-op if the panel power-on already started Wire
     delay(10);
 
     uint8_t product_id[4] = {0};
@@ -56,27 +57,44 @@ static void gt911_init() {
 }
 
 static int8_t gt911_read_raw(uint16_t *raw_x, uint16_t *raw_y) {
-    uint8_t status = 0;
-    if (!_gt911_read(GT911_REG_STATUS, &status, 1)) return -1;
+    // GT911 raises the buffer flag once per scan (~10 ms). Polls in between (and
+    // I2C hiccups) must repeat the last frame, not report a release -- otherwise
+    // a held finger flickers and one tap becomes several.
+    static int8_t   last_state = 0;
+    static uint16_t last_x = 0, last_y = 0;
+    static uint32_t last_frame_ms = 0;
 
-    // Buffer not ready yet: no new data, but not a confirmed release either.
-    if (!(status & 0x80)) return 0;
+    uint8_t status = 0;
+    const bool ok = _gt911_read(GT911_REG_STATUS, &status, 1);
+
+    if (!ok || !(status & 0x80)) {
+        // ponytail: GT911 streams frames while touched; 100 ms of silence while
+        // "pressed" means the release frame was lost -- stuck-touch guard knob.
+        if (last_state == 1 && millis() - last_frame_ms > 100) last_state = 0;
+        *raw_x = last_x;
+        *raw_y = last_y;
+        return last_state;
+    }
+    last_frame_ms = millis();
 
     const uint8_t points = status & 0x0F;
     int8_t result = 0;  // buffer ready with 0 points == real release
     if (points >= 1) {
         uint8_t p[4];
         if (_gt911_read(GT911_REG_POINT1, p, 4)) {
-            *raw_x = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-            *raw_y = (uint16_t)p[2] | ((uint16_t)p[3] << 8);
+            last_x = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+            last_y = (uint16_t)p[2] | ((uint16_t)p[3] << 8);
             result = 1;
         } else {
-            result = -1;
+            result = last_state;
         }
     }
 
     // Always clear the buffer-ready flag so the next frame can be reported.
     _gt911_write_reg(GT911_REG_STATUS, 0);
+    last_state = result;
+    *raw_x = last_x;
+    *raw_y = last_y;
     return result;
 }
 

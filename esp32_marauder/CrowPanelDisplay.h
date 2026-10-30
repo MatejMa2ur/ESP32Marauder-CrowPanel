@@ -44,6 +44,10 @@
   #define CROWPANEL_ADV_CMD_ACTIVATE 250
 #endif
 
+// Cod3rs theme: selected-row tint #1a1838, accent #755AFB.
+#define CROWPANEL_SEL_BG  0x18C7
+#define CROWPANEL_ACCENT  0x72DF
+
 static inline void crowpanel_adv_bl_cmd(uint8_t cmd) {
   Wire.beginTransmission(CROWPANEL_ADV_BL_ADDR);
   Wire.write(cmd);
@@ -167,7 +171,16 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
   using lgfx::LGFX_Device::setTextColor;
   void drawXBitmap(int32_t x, int32_t y, const uint8_t *bitmap, int32_t w,
                    int32_t h, uint16_t fg, uint16_t bg) {
-    lgfx::LGFX_Device::drawXBitmap(x, y, bitmap, w, h, fg, bg);
+    if (fg != TFT_BLACK) { lgfx::LGFX_Device::drawXBitmap(x, y, bitmap, w, h, fg, bg); return; }
+    // ponytail: menu icons are "black ink on a coloured box"; keep the black
+    // transparent so the selected-row tint shows through. Per-pixel, icons are 22x22.
+    const int32_t bw = (w + 7) / 8;
+    startWrite();
+    for (int32_t j = 0; j < h; j++)
+      for (int32_t i = 0; i < w; i++)
+        if (!(pgm_read_byte(bitmap + j * bw + i / 8) & (1 << (i & 7))))
+          drawPixel(x + i, y + j, bg);
+    endWrite();
   }
   void setTextColor(uint16_t fg, uint16_t bg, bool /*bg_fill*/) {
     lgfx::LGFX_Device::setTextColor(fg, bg);
@@ -189,10 +202,12 @@ class CrowPanelButton {
   void setLabelDatum(int16_t x, int16_t y, uint8_t = MC_DATUM) { label_dx_ = x; label_dy_ = y; }
   void drawButton(bool inverted = false, String long_name = "") {
     if (!gfx_) return;
-    const uint16_t fill = inverted ? text_ : fill_;
-    const uint16_t text = inverted ? fill_ : text_;
+    // Selected row: dark accent tint + outline instead of the TFT_eSPI-style
+    // inverted fill (an 800x48 bar in the item colour -- usually green).
+    const uint16_t fill = inverted ? CROWPANEL_SEL_BG : fill_;
+    const uint16_t text = text_;
     gfx_->fillRect(x_ - w_ / 2, y_ - h_ / 2, w_, h_, fill);
-    gfx_->drawRect(x_ - w_ / 2, y_ - h_ / 2, w_, h_, outline_);
+    gfx_->drawRect(x_ - w_ / 2, y_ - h_ / 2, w_, h_, inverted ? CROWPANEL_ACCENT : outline_);
     gfx_->setTextColor(text, fill);
     gfx_->setTextSize(text_size_);
     // Middle datum so the label stays vertically centred at any KEY_H/textsize
