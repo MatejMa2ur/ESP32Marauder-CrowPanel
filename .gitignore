@@ -23,3 +23,9 @@ C5_Py_Flasher_for_adapter/
 C5_Py_Flasher_for_mini_v3/
 C5_Py_Flasher_for_v8/
 esp32_marauder/PreviousVersions/
+
+# From-source (ESP-IDF component) build artifacts generated in the repo root
+/CMakeLists.txt
+dependencies.lock
+managed_components/
+sdkconfig.*

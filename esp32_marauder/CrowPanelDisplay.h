@@ -24,6 +24,8 @@
 #include <LovyanGFX.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
 #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#include <esp_lcd_panel_rgb.h>
+#include <esp_lcd_panel_ops.h>
 #include <Wire.h>
 
 // Backlight on this V1.2/V1.3 board is a small MCU at I2C 0x30 (bus shared with
@@ -75,8 +77,60 @@ static inline void crowpanel_adv_panel_power_on() {
 #endif
 }
 
+// ponytail: LovyanGFX's stock Bus_RGB streams the RGB DMA straight from the
+// PSRAM framebuffer with NO bounce buffer, so PSRAM contention from WiFi/flash
+// starves the pixel stream -> rolling colour bars (or a white screen at low
+// PCLK). Hand scanout to the native esp_lcd RGB driver with a 10-line internal-
+// SRAM bounce buffer -- the DMA then reads from SRAM and an ISR refills it from
+// PSRAM, so contention can't starve it. Config mirrors the known-good
+// Marauder-GD main/board.cpp. LovyanGFX keeps doing ALL the drawing; it finds
+// the framebuffer through the bus's virtual getDMABuffer(), which we point at
+// esp_lcd's framebuffer -- so no Marauder drawing code changes.
+class CrowPanelBus : public lgfx::Bus_RGB {
+  esp_lcd_panel_handle_t _panel_h = nullptr;
+  void* _fb = nullptr;
+ public:
+  bool init(void) override {
+    if (_panel_h) return _fb != nullptr;   // one-shot, like the LGFX init guard
+    const auto& c = config();
+    esp_lcd_rgb_panel_config_t cfg = {};
+    cfg.clk_src               = LCD_CLK_SRC_DEFAULT;
+    cfg.data_width            = 16;
+    cfg.bits_per_pixel        = 16;
+    cfg.num_fbs               = 1;
+    cfg.bounce_buffer_size_px = 800 * 10;   // two 16 KB internal-SRAM buffers
+    cfg.dma_burst_size        = 64;
+    cfg.hsync_gpio_num        = c.pin_hsync;
+    cfg.vsync_gpio_num        = c.pin_vsync;
+    cfg.de_gpio_num           = c.pin_henable;
+    cfg.pclk_gpio_num         = c.pin_pclk;
+    cfg.disp_gpio_num         = -1;
+    for (int i = 0; i < 16; ++i) cfg.data_gpio_nums[i] = c.pin_data[i];
+    cfg.timings.pclk_hz           = c.freq_write;
+    cfg.timings.h_res             = 800;
+    cfg.timings.v_res             = 480;
+    cfg.timings.hsync_pulse_width = c.hsync_pulse_width;
+    cfg.timings.hsync_back_porch  = c.hsync_back_porch;
+    cfg.timings.hsync_front_porch = c.hsync_front_porch;
+    cfg.timings.vsync_pulse_width = c.vsync_pulse_width;
+    cfg.timings.vsync_back_porch  = c.vsync_back_porch;
+    cfg.timings.vsync_front_porch = c.vsync_front_porch;
+    cfg.timings.flags.pclk_active_neg = c.pclk_active_neg;  // 1, as Marauder-GD
+    cfg.flags.fb_in_psram = 1;
+    if (esp_lcd_new_rgb_panel(&cfg, &_panel_h) != ESP_OK) return false;
+    esp_lcd_panel_reset(_panel_h);
+    esp_lcd_panel_init(_panel_h);           // starts the bounce-buffered scanout
+    if (esp_lcd_rgb_panel_get_frame_buffer(_panel_h, 1, &_fb) != ESP_OK) _fb = nullptr;
+    return _fb != nullptr;
+  }
+  uint8_t* getDMABuffer(uint32_t) override { return (uint8_t*)_fb; }
+  void release(void) override {
+    if (_panel_h) { esp_lcd_panel_del(_panel_h); _panel_h = nullptr; _fb = nullptr; }
+  }
+};
+
 class CrowPanelDisplay : public lgfx::LGFX_Device {
-  lgfx::Bus_RGB   _bus;
+  CrowPanelBus    _bus;
   lgfx::Panel_RGB _panel;
   lgfx::Touch_GT911 _touch;
 
@@ -108,16 +162,15 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.pin_vsync   = GPIO_NUM_41;
       cfg.pin_hsync   = GPIO_NUM_40;
       cfg.pin_pclk    = GPIO_NUM_39;
-      // LovyanGFX streams the framebuffer straight from PSRAM (no bounce buffer,
-      // unlike esp_lcd), so PSRAM contention from WiFi/flash underruns the DMA
-      // and the image shears. Lower PCLK = more headroom. Tune with the flag.
+      // Pixel clock. CrowPanelBus hands scanout to esp_lcd with a bounce buffer,
+      // so 16 MHz (Marauder-GD's proven value) is stable; the old bufferless
+      // path needed <=12 MHz and still sheared. Override the flag to retune.
 #ifndef CROWPANEL_ADV_PCLK_HZ
-  #define CROWPANEL_ADV_PCLK_HZ 12000000
+  #define CROWPANEL_ADV_PCLK_HZ 16000000
 #endif
       cfg.freq_write  = CROWPANEL_ADV_PCLK_HZ;
       cfg.hsync_polarity = 0; cfg.hsync_front_porch = 8; cfg.hsync_pulse_width = 4; cfg.hsync_back_porch = 8;
       cfg.vsync_polarity = 0; cfg.vsync_front_porch = 8; cfg.vsync_pulse_width = 4; cfg.vsync_back_porch = 8;
-      cfg.pclk_idle_high = 1;
       _bus.config(cfg);
     }
     _panel.setBus(&_bus);
