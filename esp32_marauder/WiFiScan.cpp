@@ -4436,6 +4436,20 @@ void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color) {
         display_obj.scanTitle("Scan AP/STA");
     #endif
     this->prepareScanStage(TFT_GREEN, TFT_BLACK);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      {
+        // access_points/stations are reset right below, so the row starts at 0
+        // rather than reading the about-to-be-freed previous scan's counts.
+        this->crow_scan_start_ms = millis();
+        const crowpanel::Rect rects[3] = {crowpanel::statRect(0), crowpanel::statRect(1),
+                                          crowpanel::statRect(2)};
+        const char* labels[3] = {"APs", "STATIONS", "ELAPSED"};
+        const char* values[3] = {"0", "0", "0s"};
+        const uint16_t colors[3] = {crowpanel::kText, crowpanel::kText, crowpanel::kMuted};
+        display_obj.crowpanelStatsRow(rects, 3, labels, values, colors,
+                                      crowpanel::kStatRowBottom + 8);
+      }
+    #endif
   #endif
 
   delete access_points;
@@ -7009,8 +7023,19 @@ void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color) {
     display_obj.tftDrawChannelScaleButtons(set_channel, false);
     display_obj.tftDrawExitScaleButtons(false);
     display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+    #ifdef MARAUDER_CROWPANEL_ADV
+      {
+        // Toolbar ends at x=432; two extra cards fit beside it on the same row.
+        this->crow_scan_start_ms = millis();
+        const crowpanel::Rect rects[2] = {{444, 72, 160, 44}, {612, 72, 170, 44}};
+        const char* labels[2] = {"PACKETS", "ELAPSED"};
+        const char* values[2] = {"0", "0s"};
+        const uint16_t colors[2] = {crowpanel::kText, crowpanel::kMuted};
+        display_obj.crowpanelStatsRow(rects, 2, labels, values, colors, 0);
+      }
+    #endif
   #endif
-  
+
   esp_wifi_init(&cfg2);
   #ifdef HAS_IDF_3
     esp_wifi_set_country(&country);
@@ -12764,13 +12789,32 @@ void WiFiScan::main(uint32_t currentTime)
       initTime = millis();
       channelHop();
     }
-    if ((currentScanMode == WIFI_SCAN_AP) || 
+    if ((currentScanMode == WIFI_SCAN_AP) ||
         (currentScanMode == WIFI_SCAN_PROBE) ||
         (currentScanMode == WIFI_SCAN_DEAUTH)){
       #ifdef HAS_ILI9341
         this->signalAnalyzerLoop(currentTime);
       #endif
     }
+    #ifdef MARAUDER_CROWPANEL_ADV
+      if (display_obj.crowpanelStatsDue(currentTime)) {
+        char buf[12];
+        const uint32_t elapsed_s = (currentTime - this->crow_scan_start_ms) / 1000;
+        if ((currentScanMode == WIFI_SCAN_AP) || (currentScanMode == WIFI_SCAN_AP_STA)) {
+          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedAccessPointCount());
+          display_obj.crowpanelStatsUpdate(0, buf);
+          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedStationCount());
+          display_obj.crowpanelStatsUpdate(1, buf);
+          snprintf(buf, sizeof(buf), "%lus", (unsigned long)elapsed_s);
+          display_obj.crowpanelStatsUpdate(2, buf);
+        } else if (currentScanMode == WIFI_SCAN_DEAUTH) {
+          snprintf(buf, sizeof(buf), "%lu", (unsigned long)packets_sent);
+          display_obj.crowpanelStatsUpdate(0, buf);
+          snprintf(buf, sizeof(buf), "%lus", (unsigned long)elapsed_s);
+          display_obj.crowpanelStatsUpdate(1, buf);
+        }
+      }
+    #endif
   }
   else if (currentScanMode == WIFI_SCAN_SAE_COMMIT) {
     if (currentTime - initTime >= 250) {

@@ -16,14 +16,20 @@
 // We use LovyanGFX because (a) its API is intentionally TFT_eSPI-compatible
 // (drawString/drawCentreString/setTextDatum/getTouch/setFreeFont all exist) and
 // (b) Elecrow's own known-good driver for this exact board is a LovyanGFX
-// config. The panel/bus/touch parameters below are copied verbatim from
-// Elecrow's LovyanGFX_Driver.h (CrowPanel-Advance-5 repo, lesson-03).
+// config. The panel timings and pins below are copied verbatim from Elecrow's
+// LovyanGFX_Driver.h (CrowPanel-Advance-5 repo, lesson-03). The RGB bus itself
+// is an esp_lcd panel with bounce buffers (Bus_EspLcdRGB), not LovyanGFX's Bus_RGB.
 // ---------------------------------------------------------------------------
 
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
-#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#ifdef CROWPANEL_ADV_ESP_LCD_BUS
+  #include <esp_lcd_panel_rgb.h>
+  #include <esp_lcd_panel_ops.h>
+#else
+  #include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#endif
 #include <Wire.h>
 
 // Backlight on this V1.2/V1.3 board is a small MCU at I2C 0x30 (bus shared with
@@ -98,8 +104,103 @@ static inline void crowpanel_adv_set_brightness(uint8_t percent) {
 #endif
 }
 
+// PCLK for the RGB panel. With the esp_lcd bus the bounce buffers absorb PSRAM
+// contention, so it can match Marauder-GD; LovyanGFX's Bus_RGB has no buffer, so
+// it runs slower for headroom. Tune with the flag.
+#ifndef CROWPANEL_ADV_PCLK_HZ
+  #ifdef CROWPANEL_ADV_ESP_LCD_BUS
+    #define CROWPANEL_ADV_PCLK_HZ 16000000
+  #else
+    #define CROWPANEL_ADV_PCLK_HZ 12000000
+  #endif
+#endif
+
+#ifdef CROWPANEL_ADV_ESP_LCD_BUS
+// Opt-in (-DCROWPANEL_ADV_ESP_LCD_BUS): needs CONFIG_SPIRAM_FETCH_INSTRUCTIONS +
+// CONFIG_SPIRAM_RODATA (as Marauder-GD). Without them every flash access disables
+// the cache while the IRAM-safe bounce ISR still reads the PSRAM framebuffer ->
+// "Cache disabled but cached memory region accessed" (SPIFFS mount at boot).
+// RGB bus backed by ESP-IDF esp_lcd with bounce buffers. LovyanGFX's Bus_RGB
+// streams the framebuffer straight from PSRAM by GDMA, so PSRAM contention
+// underruns it (image shifts, colours swap, panel drops into its self-test
+// cycle). esp_lcd copies PSRAM -> internal-RAM bounce buffers and DMAs from
+// those. Panel_RGB only needs the framebuffer, via getDMABuffer(); the rest of
+// IBus is unused for an RGB panel. Timings/pins as Marauder-GD main/board.cpp.
+struct Bus_EspLcdRGB : public lgfx::IBus {
+  lgfx::bus_type_t busType(void) const override { return lgfx::bus_type_t::bus_unknown; }
+
+  bool init(void) override {
+    if (_fb) return true;
+    esp_lcd_rgb_panel_config_t cfg{};
+    cfg.clk_src = LCD_CLK_SRC_DEFAULT;
+    cfg.data_width = 16;
+    cfg.bits_per_pixel = 16;
+    cfg.num_fbs = 1;
+    cfg.bounce_buffer_size_px = 800 * 10;  // 2 x 16 KB internal DMA RAM
+    cfg.dma_burst_size = 64;
+    cfg.hsync_gpio_num = 40;
+    cfg.vsync_gpio_num = 41;
+    cfg.de_gpio_num = 42;
+    cfg.pclk_gpio_num = 39;
+    cfg.disp_gpio_num = -1;
+    // d0..d4 = B0..B4, d5..d10 = G0..G5, d11..d15 = R0..R4
+    const int pins[] = {21, 47, 48, 45, 38, 9, 10, 11, 12, 13, 14, 7, 17, 18, 3, 46};
+    for (int i = 0; i < 16; ++i) cfg.data_gpio_nums[i] = pins[i];
+    cfg.timings.pclk_hz = CROWPANEL_ADV_PCLK_HZ;
+    cfg.timings.h_res = 800;
+    cfg.timings.v_res = 480;
+    cfg.timings.hsync_pulse_width = 4; cfg.timings.hsync_back_porch = 8; cfg.timings.hsync_front_porch = 8;
+    cfg.timings.vsync_pulse_width = 4; cfg.timings.vsync_back_porch = 8; cfg.timings.vsync_front_porch = 8;
+    cfg.timings.flags.pclk_active_neg = 1;
+    cfg.flags.fb_in_psram = 1;
+    esp_err_t err = esp_lcd_new_rgb_panel(&cfg, &_h);
+    if (err == ESP_OK) err = esp_lcd_panel_reset(_h);
+    if (err == ESP_OK) err = esp_lcd_panel_init(_h);
+    if (err == ESP_OK) err = esp_lcd_rgb_panel_get_frame_buffer(_h, 1, &_fb);
+    if (err != ESP_OK) {
+      Serial.printf("CrowPanel: esp_lcd RGB init failed: %s\n", esp_err_to_name(err));
+      _fb = nullptr;
+      return false;
+    }
+    return true;
+  }
+  void release(void) override {}
+
+  void beginTransaction(void) override {}
+  void endTransaction(void) override {}
+  void wait(void) override {}
+  bool busy(void) const override { return false; }
+
+  void flush(void) override {}
+  bool writeCommand(uint32_t, uint_fast8_t) override { return true; }
+  void writeData(uint32_t, uint_fast8_t) override {}
+  void writeDataRepeat(uint32_t, uint_fast8_t, uint32_t) override {}
+  void writePixels(lgfx::pixelcopy_t*, uint32_t) override {}
+  void writeBytes(const uint8_t*, uint32_t, bool, bool) override {}
+
+  void initDMA(void) override {}
+  void addDMAQueue(const uint8_t*, uint32_t) override {}
+  void execDMAQueue(void) override {}
+  uint8_t* getDMABuffer(uint32_t) override { return (uint8_t*)_fb; }
+
+  void beginRead(void) override {}
+  void endRead(void) override {}
+  uint32_t readData(uint_fast8_t) override { return 0; }
+  bool readBytes(uint8_t*, uint32_t, bool) override { return false; }
+  void readPixels(void*, lgfx::pixelcopy_t*, uint32_t) override {}
+
+ private:
+  esp_lcd_panel_handle_t _h = nullptr;
+  void *_fb = nullptr;
+};
+#endif  // CROWPANEL_ADV_ESP_LCD_BUS
+
 class CrowPanelDisplay : public lgfx::LGFX_Device {
+#ifdef CROWPANEL_ADV_ESP_LCD_BUS
+  Bus_EspLcdRGB   _bus;
+#else
   lgfx::Bus_RGB   _bus;
+#endif
   lgfx::Panel_RGB _panel;
 
  public:
@@ -116,6 +217,7 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.use_psram = 1;  // 800*480*2 = 768 KB framebuffer lives in PSRAM
       _panel.config_detail(cfg);
     }
+#ifndef CROWPANEL_ADV_ESP_LCD_BUS
     {
       auto cfg = _bus.config();
       cfg.panel = &_panel;
@@ -130,18 +232,13 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.pin_vsync   = GPIO_NUM_41;
       cfg.pin_hsync   = GPIO_NUM_40;
       cfg.pin_pclk    = GPIO_NUM_39;
-      // LovyanGFX streams the framebuffer straight from PSRAM (no bounce buffer,
-      // unlike esp_lcd), so PSRAM contention from WiFi/flash underruns the DMA
-      // and the image shears. Lower PCLK = more headroom. Tune with the flag.
-#ifndef CROWPANEL_ADV_PCLK_HZ
-  #define CROWPANEL_ADV_PCLK_HZ 12000000
-#endif
       cfg.freq_write  = CROWPANEL_ADV_PCLK_HZ;
       cfg.hsync_polarity = 0; cfg.hsync_front_porch = 8; cfg.hsync_pulse_width = 4; cfg.hsync_back_porch = 8;
       cfg.vsync_polarity = 0; cfg.vsync_front_porch = 8; cfg.vsync_pulse_width = 4; cfg.vsync_back_porch = 8;
       cfg.pclk_idle_high = 1;
       _bus.config(cfg);
     }
+#endif
     _panel.setBus(&_bus);
     setPanel(&_panel);
   }

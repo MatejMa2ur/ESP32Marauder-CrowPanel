@@ -6009,24 +6009,14 @@ void MenuFunctions::changeMenu(Menu* menu, bool simple_change) {
 
 void MenuFunctions::buildButtons(Menu *menu, int starting_index, const char* button_name) {
   #ifdef MARAUDER_CROWPANEL_ADV
-    // key[] mirrors the rows on the current page so code that hit-tests
-    // key[].contains still lines up. Unused keys (and the Pancake screen-third
-    // zones) get an empty rect so nothing stale can match.
+    // Nothing reads the row keys on CrowPanel (hit-testing is crowpanel::rowAt);
+    // only the Pancake screen-third zone keys are blanked so nothing stale matches.
     if (menu == current_menu)
       this->crowpanelMapRows();
     this->menu_start_index = 0;
-    for (uint8_t i = 0; i < BUTTON_ARRAY_LEN + 3; i++) {
-      if (menu == current_menu && i < this->crowpanel_row_count) {
-        const crowpanel::Rect r = crowpanel::rowRect(i);
-        char buf[64];
-        menu->list->get(this->crowpanel_rows[i]).name.toCharArray(buf, sizeof(buf));
-        display_obj.key[i].initButton(&display_obj.tft, r.x + r.w / 2, r.y + r.h / 2, r.w, r.h,
-                                      crowpanel::kEdge, crowpanel::kPanel, crowpanel::kText, buf, 1);
-      } else {
-        display_obj.key[i].initButton(&display_obj.tft, 0, 0, 0, 0,
-                                      crowpanel::kBg, crowpanel::kBg, crowpanel::kBg, (char*)"", 1);
-      }
-    }
+    for (uint8_t i = BUTTON_ARRAY_LEN; i < BUTTON_ARRAY_LEN + 3; i++)
+      display_obj.key[i].initButton(&display_obj.tft, 0, 0, 0, 0,
+                                    crowpanel::kBg, crowpanel::kBg, crowpanel::kBg, (char*)"", 1);
     return;
   #endif
 
@@ -6105,11 +6095,6 @@ constexpr int8_t kTouchPoi = 14;
 constexpr int8_t kTouchSwallow = 15;  // action fired; ignore until release
 constexpr int16_t kSwipeMin = 48;
 
-constexpr crowpanel::Rect kPoiBtn = {18, 408, 160, 44};
-constexpr crowpanel::Rect kBrightMinusBtn = {18, 200, 200, 80};
-constexpr crowpanel::Rect kBrightPlusBtn = {582, 200, 200, 80};
-constexpr crowpanel::Rect kBrightBar = {238, 220, 324, 40};
-
 bool crowpanelSettingNode(const MenuNode& node) {
   return node.icon == SETTINGS && node.color == TFTLIGHTGREY;
 }
@@ -6121,10 +6106,52 @@ bool crowpanelOwnTouchMode(uint8_t mode) {
          mode == WIFI_SCAN_CHAN_ANALYZER || mode == WIFI_SCAN_PACKET_RATE ||
          mode == WIFI_SCAN_RAW_CAPTURE || mode == WIFI_SCAN_AP ||
          mode == BT_SCAN_FLOCK || mode == WIFI_SCAN_PROBE ||
-         mode == WIFI_SCAN_DEAUTH || mode == WIFI_SCAN_SIG_STREN ||
+         mode == WIFI_SCAN_DEAUTH || mode == BT_SCAN_ANALYZER ||
          mode == WIFI_SCAN_CHAN_ACT || mode == ESP_UPDATE ||
          mode == LV_JOIN_WIFI || mode == LV_ADD_SSID;
 }
+
+// Home tile subtitle, keyed by the main menu node's icon.
+const char* crowpanelTileSubtitle(uint8_t icon) {
+  switch (icon) {
+    case GENERAL_APPS: return "Passive WiFi & BLE recon";
+    case WIFI:         return "Scan / sniff / attack";
+    case BLUETOOTH:    return "Scan / spam / detect";
+    case GPS_MENU:     return "Fix / data / POI";
+    case DEVICE:       return "Settings / info / update";
+    case REBOOT:       return "Restart device";
+    default:           return "";
+  }
+}
+}
+
+bool MenuFunctions::crowpanelHome() {
+  return current_menu == &mainMenu;
+}
+
+uint16_t MenuFunctions::crowpanelPages() {
+  return this->crowpanelHome() ? crowpanel::tilePageCount(this->crowpanel_visible)
+                               : crowpanel::pageCount(this->crowpanel_visible);
+}
+
+// Home header: no BACK (root menu), STOP stays; SD/BLE/WiFi chips sit in
+// the free space between the title block and STOP.
+void MenuFunctions::crowpanelDrawHomeHeader() {
+  crowpanel::ui::drawHeader(display_obj.tft, "MARAUDER", HARDWARE_NAME "  " MARAUDER_VERSION,
+                            false, this->crowpanelScanRunning());
+  const int16_t chip_y = crowpanel::kStopBtn.y + (crowpanel::kStopBtn.h - 22) / 2;  // chips are 22 tall
+  int16_t x = crowpanel::kBackBtn.x - 150;  // ponytail: fixed start; title/subtitle are short on home
+  auto chip = [&](const char* text, bool on) {
+    if (x >= crowpanel::kStopBtn.x - 40)  // no room left of STOP
+      return;
+    x += crowpanel::ui::drawChip(display_obj.tft, x, chip_y, text,
+                                 on ? crowpanel::kAccent : crowpanel::kMuted) + 8;
+  };
+  #ifdef HAS_SD
+    chip("SD", sd_obj.supported);
+  #endif
+  chip("BLE", wifi_scan_obj.ble_initialized);
+  chip("WiFi", wifi_scan_obj.wifi_connected);
 }
 
 // Visible rows are every node of current_menu except "Back" (text09), which
@@ -6150,10 +6177,13 @@ void MenuFunctions::crowpanelMapRows() {
     this->crowpanel_visible++;
   }
 
-  this->crowpanel_page = crowpanel::clampPage(this->crowpanel_page, crowpanel::pageCount(this->crowpanel_visible));
-  const uint16_t first = crowpanel::pageStart(this->crowpanel_page);
+  const bool home = this->crowpanelHome();
+  const uint8_t per_page = home ? crowpanel::kTilesPerPage : crowpanel::kRowsPerPage;
+  this->crowpanel_page = crowpanel::clampPage(this->crowpanel_page, this->crowpanelPages());
+  const uint16_t first = home ? this->crowpanel_page * crowpanel::kTilesPerPage
+                              : crowpanel::pageStart(this->crowpanel_page);
   uint16_t visible_index = 0;
-  for (int i = 0; i < size && this->crowpanel_row_count < crowpanel::kRowsPerPage; i++) {
+  for (int i = 0; i < size && this->crowpanel_row_count < per_page; i++) {
     if (current_menu->list->get(i).name == text09)
       continue;
     if (visible_index++ < first)
@@ -6167,6 +6197,13 @@ void MenuFunctions::crowpanelDrawRow(uint8_t row, bool pressed) {
       this->crowpanel_rows[row] >= current_menu->list->size())
     return;
   MenuNode node = current_menu->list->get(this->crowpanel_rows[row]);
+  if (this->crowpanelHome()) {
+    // Node colour only tints the tile's accent strip.
+    crowpanel::ui::drawTile(display_obj.tft, crowpanel::tileRect(row), node.name.c_str(),
+                            crowpanelTileSubtitle(node.icon), this->getColor(node.color),
+                            node.icon != 255 ? menu_icons[node.icon] : nullptr, pressed);
+    return;
+  }
   const bool setting = crowpanelSettingNode(node);
   const bool pick = !setting && this->crowpanel_pick_list && node.icon == 255;
   crowpanel::ui::drawRow(display_obj.tft, row, node.name.c_str(), this->getColor(node.color),
@@ -6193,7 +6230,7 @@ void MenuFunctions::crowpanelStopScan() {
 
 void MenuFunctions::crowpanelDrawPoi(bool flash) {
   const String label = flash ? "POI (" + String(wifi_scan_obj.poiCount) + ")" : String("POI");
-  crowpanel::ui::drawButton(display_obj.tft, kPoiBtn, label.c_str(), crowpanel::ui::Style::Primary, flash);
+  crowpanel::ui::drawButton(display_obj.tft, crowpanel::kPoiBtn, label.c_str(), crowpanel::ui::Style::Primary, flash);
   this->crowpanel_poi_drawn = true;
 }
 
@@ -6215,18 +6252,19 @@ void MenuFunctions::crowpanelTouch(bool pressed, uint16_t t_x, uint16_t t_y) {
   }
 
   const bool scanning = this->crowpanelScanRunning();
-  const uint16_t pages = crowpanel::pageCount(this->crowpanel_visible);
+  const uint16_t pages = this->crowpanelPages();
+  const bool home = this->crowpanelHome();
 
   auto targetAt = [&](int16_t x, int16_t y) -> int8_t {
-    const crowpanel::HeaderHit h = crowpanel::headerHit(x, y, this->crowpanel_back >= 0);
+    const crowpanel::HeaderHit h = crowpanel::headerHit(x, y, !scanning && this->crowpanel_back >= 0);
     if (h == crowpanel::HeaderHit::Back) return kTouchBack;
     if (h == crowpanel::HeaderHit::Stop) return scanning ? kTouchStop : kTouchEmpty;
     if (scanning)
-      return (wardrive && crowpanel::contains(kPoiBtn, x, y)) ? kTouchPoi : kTouchEmpty;
+      return (wardrive && crowpanel::contains(crowpanel::kPoiBtn, x, y)) ? kTouchPoi : kTouchEmpty;
     const crowpanel::FooterHit f = crowpanel::footerHit(x, y, pages);
     if (f == crowpanel::FooterHit::Prev) return kTouchPrev;
     if (f == crowpanel::FooterHit::Next) return kTouchNext;
-    const int8_t row = crowpanel::rowAt(x, y);
+    const int8_t row = home ? crowpanel::tileAt(x, y) : crowpanel::rowAt(x, y);
     return (row >= 0 && row < this->crowpanel_row_count) ? row : kTouchEmpty;
   };
 
@@ -6341,12 +6379,15 @@ void MenuFunctions::displayCurrentMenu(int start_index)
     (void)start_index;
     display_obj.tft.fillScreen(crowpanel::kBg);
     this->crowpanelMapRows();
-    crowpanel::ui::drawHeader(display_obj.tft, current_menu->name.c_str(),
-                              HARDWARE_NAME "  " MARAUDER_VERSION,
-                              this->crowpanel_back >= 0, this->crowpanelScanRunning());
+    if (this->crowpanelHome())
+      this->crowpanelDrawHomeHeader();
+    else
+      crowpanel::ui::drawHeader(display_obj.tft, current_menu->name.c_str(),
+                                HARDWARE_NAME "  " MARAUDER_VERSION,
+                                this->crowpanel_back >= 0, this->crowpanelScanRunning());
     for (uint8_t r = 0; r < this->crowpanel_row_count; r++)
       this->crowpanelDrawRow(r, false);
-    crowpanel::ui::drawFooter(display_obj.tft, this->crowpanel_page, crowpanel::pageCount(this->crowpanel_visible));
+    crowpanel::ui::drawFooter(display_obj.tft, this->crowpanel_page, this->crowpanelPages());
     this->drawStatusBar();
     return;
   #endif
@@ -6441,11 +6482,11 @@ void MenuFunctions::displayCurrentMenu(int start_index)
 
     display_obj.tft.fillScreen(crowpanel::kBg);
     crowpanel::ui::drawHeader(display_obj.tft, "Brightness", HARDWARE_NAME "  " MARAUDER_VERSION, true, false);
-    crowpanel::ui::drawButton(display_obj.tft, kBrightMinusBtn, "-", crowpanel::ui::Style::Neutral);
-    crowpanel::ui::drawButton(display_obj.tft, kBrightPlusBtn, "+", crowpanel::ui::Style::Neutral);
+    crowpanel::ui::drawButton(display_obj.tft, crowpanel::kBrightMinusBtn, "-", crowpanel::ui::Style::Neutral);
+    crowpanel::ui::drawButton(display_obj.tft, crowpanel::kBrightPlusBtn, "+", crowpanel::ui::Style::Neutral);
 
     auto drawBar = [&]() {
-      const crowpanel::Rect b = kBrightBar;
+      const crowpanel::Rect b = crowpanel::kBrightBar;
       display_obj.tft.fillRoundRect(b.x, b.y, b.w, b.h, crowpanel::ui::kRadius, crowpanel::kPanel);
       display_obj.tft.drawRoundRect(b.x, b.y, b.w, b.h, crowpanel::ui::kRadius, crowpanel::kEdge);
       display_obj.tft.fillRoundRect(b.x + 4, b.y + 4, (b.w - 8) * (step + 1) / steps, b.h - 8,
@@ -6465,8 +6506,8 @@ void MenuFunctions::displayCurrentMenu(int start_index)
     enum { HIT_NONE, HIT_MINUS, HIT_PLUS, HIT_BACK } down = HIT_NONE;
     auto hit = [&](uint16_t x, uint16_t y) {
       return crowpanel::headerHit(x, y, true) == crowpanel::HeaderHit::Back ? HIT_BACK
-             : crowpanel::contains(kBrightMinusBtn, x, y)                  ? HIT_MINUS
-             : crowpanel::contains(kBrightPlusBtn, x, y)                   ? HIT_PLUS
+             : crowpanel::contains(crowpanel::kBrightMinusBtn, x, y)                  ? HIT_MINUS
+             : crowpanel::contains(crowpanel::kBrightPlusBtn, x, y)                   ? HIT_PLUS
                                                                            : HIT_NONE;
     };
     bool touching = false;
@@ -6512,9 +6553,7 @@ void MenuFunctions::displayCurrentMenu(int start_index)
     uint8_t level = getBrightnessLevel();
 
     // LEDC write compatibility (2.x vs 3.x board package)
-    #ifdef MARAUDER_CROWPANEL_ADV
-      #define BL_PREVIEW(duty) crowpanel_adv_set_brightness((duty) * 100 / 255)
-    #elif ESP_ARDUINO_VERSION_MAJOR >= 3
+    #if ESP_ARDUINO_VERSION_MAJOR >= 3
       #define BL_PREVIEW(duty) ledcWrite(TFT_BL, (duty))
     #else
       #define BL_PREVIEW(duty) ledcWrite(0, (duty))

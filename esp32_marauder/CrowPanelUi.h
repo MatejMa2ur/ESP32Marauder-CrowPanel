@@ -11,7 +11,7 @@
 // Marauder-GD style widgets for the CrowPanel 5.0" Advance: flat, radius-3
 // rounded rects, 1px EDGE borders, black background, accent only on outlines
 // and primary text. Geometry/palette live in CrowPanelLayout.h; this file only
-// draws. Every function restores font/textsize/datum so Marauder's own
+// draws. Every function resets font/textsize/datum so Marauder's own
 // drawing is unaffected.
 // ---------------------------------------------------------------------------
 
@@ -31,7 +31,8 @@ inline void restore(CrowPanelDisplay &tft) {
 // Copy `s` into `out`, appending "..." if it is wider than maxW in the
 // currently selected font.
 inline void fit(CrowPanelDisplay &tft, const char *s, int16_t maxW, char *out, size_t n) {
-  strlcpy(out, s ? s : "", n);
+  if (!s) s = "";
+  strlcpy(out, s, n);
   if (tft.textWidth(out) <= maxW) return;
   size_t len = strlen(out);
   while (len > 0) {
@@ -61,27 +62,29 @@ inline void drawButton(CrowPanelDisplay &tft, Rect r, const char *label, Style s
 
 inline void drawHeader(CrowPanelDisplay &tft, const char *title, const char *subtitle,
                        bool showBack, bool stopActive) {
-  tft.fillRect(0, 0, 800, kHeaderH, kBg);
+  tft.fillRect(0, 0, crowpanel::kScreenW, kHeaderH, kBg);
   char buf[64];
   tft.setFont(&fonts::FreeSansBold12pt7b);
-  fit(tft, title, 540 - kTitleX, buf, sizeof(buf));
+  const int16_t tx = kTitleX + 12;  // accent marker (GD "//" vibe) before the title
+  tft.fillRect(kTitleX, kTitleY + 2, 4, 22, kAccent);
+  fit(tft, title, (kBackBtn.x - 14) - tx, buf, sizeof(buf));
   tft.setTextColor(kText, kBg);
-  tft.drawString(buf, kTitleX, kTitleY);
+  tft.drawString(buf, tx, kTitleY);
   tft.setFont(&fonts::Font2);
   tft.setTextColor(kMuted, kBg);
   tft.drawString(subtitle ? subtitle : "", kSubtitleX, kSubtitleY);
   restore(tft);
   if (showBack) drawButton(tft, kBackBtn, "BACK", Style::Neutral);
   drawButton(tft, kStopBtn, "STOP", stopActive ? Style::Danger : Style::Disabled);
-  tft.drawFastHLine(0, kHeaderH, 800, kEdge);
+  tft.drawFastHLine(0, kHeaderH, crowpanel::kScreenW, kEdge);
 }
 
 inline void drawRow(CrowPanelDisplay &tft, uint8_t i, const char *label, uint16_t color,
                     const uint8_t *icon, bool toggle, bool checked, bool pressed) {
   Rect r = rowRect(i);
   uint16_t fill = pressed ? kPressed : kPanel;
-  tft.fillRoundRect(r.x, r.y, r.w, r.h, kRadius, fill);
-  tft.drawRoundRect(r.x, r.y, r.w, r.h, kRadius, kEdge);
+  tft.fillRect(r.x, r.y, r.w, r.h, fill);
+  tft.drawRect(r.x, r.y, r.w, r.h, kEdge);
   if (icon) tft.drawXBitmap(r.x + 12, r.y + (r.h - 22) / 2, icon, 22, 22, color);
 
   const int16_t right = r.x + r.w - 16;  // toggle/chevron sit inside this margin
@@ -115,13 +118,66 @@ inline void drawRow(CrowPanelDisplay &tft, uint8_t i, const char *label, uint16_
   }
 }
 
+// Home tile: card with left accent strip, icon, title and one-line subtitle.
+inline void drawTile(CrowPanelDisplay &tft, Rect r, const char *title, const char *subtitle,
+                     uint16_t accent, const uint8_t *icon, bool pressed) {
+  const uint16_t fill = pressed ? kPressed : kPanel;
+  tft.fillRect(r.x, r.y, r.w, r.h, fill);
+  tft.drawRect(r.x, r.y, r.w, r.h, kEdge);
+  tft.fillRect(r.x, r.y, 4, r.h, accent);
+  const int16_t x = r.x + 16, maxW = r.w - 32;
+  if (icon) tft.drawXBitmap(x, r.y + 16, icon, 22, 22, accent);  // ponytail: 22x22, no x2 scaling
+  char buf[48];
+  tft.setTextDatum(lgfx::top_left);
+  tft.setFont(&fonts::FreeSansBold12pt7b);
+  fit(tft, title, maxW, buf, sizeof(buf));
+  tft.setTextColor(kText, fill);
+  tft.drawString(buf, x, r.y + 50);
+  tft.setFont(&fonts::Font2);
+  fit(tft, subtitle, maxW, buf, sizeof(buf));
+  tft.setTextColor(kMuted, fill);
+  tft.drawString(buf, x, r.y + 82);
+  restore(tft);
+}
+
+inline void drawStatCard(CrowPanelDisplay &tft, Rect r, const char *label, const char *value,
+                         uint16_t valueColor) {
+  tft.fillRect(r.x, r.y, r.w, r.h, kPanel);
+  tft.drawRect(r.x, r.y, r.w, r.h, kEdge);
+  char buf[32];
+  tft.setTextDatum(lgfx::top_left);
+  tft.setFont(&fonts::Font2);
+  fit(tft, label, r.w - 20, buf, sizeof(buf));
+  tft.setTextColor(kMuted, kPanel);
+  tft.drawString(buf, r.x + 10, r.y + 8);
+  tft.setFont(&fonts::FreeSansBold12pt7b);
+  fit(tft, value, r.w - 20, buf, sizeof(buf));
+  tft.setTextColor(valueColor, kPanel);
+  tft.setTextDatum(lgfx::bottom_left);
+  tft.drawString(buf, r.x + 10, r.y + r.h - 8);
+  restore(tft);
+}
+
+// Small pill (h 22) at x,y; returns its width so chips can be chained.
+inline int16_t drawChip(CrowPanelDisplay &tft, int16_t x, int16_t y, const char *text, uint16_t color) {
+  tft.setFont(&fonts::Font2);
+  const int16_t w = tft.textWidth(text ? text : "") + 16;
+  tft.fillRoundRect(x, y, w, 22, 11, kBg);
+  tft.drawRoundRect(x, y, w, 22, 11, color);
+  tft.setTextColor(color, kBg);
+  tft.setTextDatum(lgfx::middle_left);
+  tft.drawString(text ? text : "", x + 8, y + 11);
+  restore(tft);
+  return w;
+}
+
 inline void clearRow(CrowPanelDisplay &tft, uint8_t i) {
   Rect r = rowRect(i);
   tft.fillRect(r.x, r.y, r.w, r.h, kBg);
 }
 
 inline void drawFooter(CrowPanelDisplay &tft, uint16_t page, uint16_t pages) {
-  tft.fillRect(0, 400, 800, 56, kBg);
+  tft.fillRect(0, 400, crowpanel::kScreenW, 56, kBg);
   if (pages <= 1) return;
   drawButton(tft, kPrevBtn, "< PREV", page > 0 ? Style::Neutral : Style::Disabled);
   drawButton(tft, kNextBtn, "NEXT >", page + 1 < pages ? Style::Neutral : Style::Disabled);
@@ -135,9 +191,10 @@ inline void drawFooter(CrowPanelDisplay &tft, uint16_t page, uint16_t pages) {
 }
 
 inline void drawStatusLine(CrowPanelDisplay &tft, const char *text) {
-  tft.fillRect(0, kStatusY - 2, 800, 480 - (kStatusY - 2), kBg);
+  tft.fillRect(0, kStatusY - 2, crowpanel::kScreenW, crowpanel::kScreenH - (kStatusY - 2), kBg);
   tft.setFont(&fonts::Font2);
   tft.setTextColor(kMuted, kBg);
+  tft.setTextDatum(lgfx::top_left);
   tft.drawString(text ? text : "", 18, kStatusY);
   restore(tft);
 }
@@ -157,7 +214,7 @@ inline void drawToolbar(CrowPanelDisplay &tft, uint8_t channel, bool hopOn) {
 }
 
 inline void clearBody(CrowPanelDisplay &tft, int16_t top) {
-  tft.fillRect(0, top, 800, 480 - top, kBg);
+  tft.fillRect(0, top, crowpanel::kScreenW, crowpanel::kScreenH - top, kBg);
 }
 
 }  // namespace ui

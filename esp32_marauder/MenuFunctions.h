@@ -18,6 +18,9 @@
 #define BATTERY_ANALOG_ON 0
 
 #include "WiFiScan.h"
+#ifdef MARAUDER_CROWPANEL_ADV
+  #include "CrowPanelLayout.h"
+#endif
 #include "ReconMission.h"
 #include "TargetListSort.h"
 #include "BatteryInterface.h"
@@ -209,7 +212,7 @@ class MenuFunctions
       // moves to the header BACK button.
       uint16_t crowpanel_page = 0;
       uint16_t crowpanel_visible = 0;     // non-Back nodes in current_menu
-      int16_t crowpanel_rows[8];          // node index per row on this page
+      int16_t crowpanel_rows[crowpanel::kMenuSlots];         // node index per row on this page
       uint8_t crowpanel_row_count = 0;
       int16_t crowpanel_back = -1;        // node index of "Back", -1 if none
       bool crowpanel_pick_list = false;   // rows carry a selected checkbox
@@ -219,6 +222,11 @@ class MenuFunctions
       bool crowpanel_poi_drawn = false;
       String crowpanel_status = "";
 
+      // Home (mainMenu) shows its nodes as a 3x2 tile grid instead of rows;
+      // crowpanel_rows then holds the node index per tile.
+      bool crowpanelHome();
+      uint16_t crowpanelPages();
+      void crowpanelDrawHomeHeader();
       void crowpanelMapRows();
       void crowpanelDrawRow(uint8_t row, bool pressed);
       bool crowpanelScanRunning();

@@ -76,8 +76,46 @@ void test_layout_bounds() {
   TEST_ASSERT_EQUAL_UINT8(22, scanTextLines(true));
 }
 
+void test_tiles() {
+  TEST_ASSERT_EQUAL_INT16(246, tileRect(0).w);
+  TEST_ASSERT_EQUAL_INT16(157, tileRect(0).h);
+  TEST_ASSERT_EQUAL_INT16(258 + 18, tileRect(1).x);
+  TEST_ASSERT_EQUAL_INT16(72 + 169, tileRect(3).y);
+  for (uint8_t i = 0; i < kTilesPerPage; i++) {
+    const Rect r = tileRect(i);
+    TEST_ASSERT_EQUAL_INT8(i, tileAt(r.x, r.y));
+    TEST_ASSERT_EQUAL_INT8(i, tileAt(r.x + r.w - 1, r.y + r.h - 1));
+    TEST_ASSERT_EQUAL_INT8(-1, tileAt(r.x + r.w, r.y + 10));
+    TEST_ASSERT_EQUAL_INT8(-1, tileAt(r.x + 10, r.y + r.h));
+    TEST_ASSERT_EQUAL_INT8(-1, tileAt(r.x - 1, r.y + 10));
+    TEST_ASSERT_TRUE(r.y >= kHeaderH);
+    TEST_ASSERT_TRUE(r.y + r.h <= kPrevBtn.y);
+    TEST_ASSERT_TRUE(r.x + r.w <= kRowX + kRowW);
+  }
+  TEST_ASSERT_EQUAL_INT8(-1, tileAt(100, 71));
+  TEST_ASSERT_EQUAL_INT8(-1, tileAt(100, 398));
+  TEST_ASSERT_EQUAL_INT8(-1, tileAt(782, 100));
+  TEST_ASSERT_EQUAL_UINT16(1, tilePageCount(0));
+  TEST_ASSERT_EQUAL_UINT16(1, tilePageCount(6));
+  TEST_ASSERT_EQUAL_UINT16(2, tilePageCount(7));
+}
+
+void test_stats() {
+  for (uint8_t i = 0; i < 4; i++) {
+    const Rect r = statRect(i);
+    TEST_ASSERT_EQUAL_INT16(182, r.w);
+    TEST_ASSERT_TRUE(r.y >= kHeaderH);
+    TEST_ASSERT_TRUE(r.x + r.w <= kRowX + kRowW);
+    if (i) TEST_ASSERT_EQUAL_INT16(12, r.x - (statRect(i - 1).x + statRect(i - 1).w));
+  }
+  TEST_ASSERT_EQUAL_INT16(782, statRect(3).x + statRect(3).w);
+  TEST_ASSERT_EQUAL_INT16(136, kStatRowBottom);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+  RUN_TEST(test_tiles);
+  RUN_TEST(test_stats);
   RUN_TEST(test_header_hits);
   RUN_TEST(test_footer_hits);
   RUN_TEST(test_row_at);
