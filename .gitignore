@@ -1,0 +1,25 @@
+
+.pio/
+.venv/
+coverage.xml
+.vscode/arduino.json
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+esp32_marauder/.vscode/settings.json
+__pycache__/
+*.pyc
+
+# CrowPanel port: generated + build-tool junk
+.dummy/
+sdkconfig.defaults
+
+# Heavy non-firmware assets (not needed to build; kept out of the CrowPanel repo)
+pictures/
+mechanical/
+PCBs/
+FlashFiles/
+Release Bins/
+C5_Py_Flasher_for_adapter/
+C5_Py_Flasher_for_mini_v3/
+C5_Py_Flasher_for_v8/
+esp32_marauder/PreviousVersions/
