@@ -192,6 +192,20 @@ class Display
     void RunSetup();
     void showCenterText(const char* text, int y, bool small_pp = false, uint8_t text_size = BANNER_TEXT_SIZE);
     void touchToExit();
+    void scanTitleBand(uint16_t color);
+    void scanTitle(const String& title);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // GD-style scan header (title, STOP) + cleared body; toolbar state below.
+      char crow_title[48] = "";
+      bool crow_toolbar = false;  // channel/hop toolbar shown under the header
+      bool crow_hop = false;
+      uint8_t crow_ch = 1;
+      bool crow_hop_en = true;    // false: HOP drawn disabled and ignored (packet monitor)
+      void crowpanelScanHeader(const char* title);
+      void crowToolbar();
+      // One 16px text row in the body at x=18 (text size 2), cleared first.
+      void crowpanelBodyLine(const char* text, int16_t y, uint16_t color);
+    #endif
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);
     void setCalData(bool landscape = false);

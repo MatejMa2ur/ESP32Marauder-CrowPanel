@@ -87,10 +87,11 @@ inline void drawRow(CrowPanelDisplay &tft, uint8_t i, const char *label, uint16_
   const int16_t right = r.x + r.w - 16;  // toggle/chevron sit inside this margin
   char buf[48];
   tft.setFont(&fonts::FreeSans12pt7b);
-  fit(tft, label, right - (toggle ? 24 : 12) - (r.x + 48) - 8, buf, sizeof(buf));
+  // Label starts 30px clear of the 22px icon at r.x+12.
+  fit(tft, label, right - (toggle ? 24 : 12) - (r.x + 64) - 8, buf, sizeof(buf));
   tft.setTextColor(kText, fill);
   tft.setTextDatum(lgfx::middle_left);
-  tft.drawString(buf, r.x + 48, r.y + r.h / 2);
+  tft.drawString(buf, r.x + 64, r.y + r.h / 2);
   restore(tft);
 
   const int16_t cy = r.y + r.h / 2;
