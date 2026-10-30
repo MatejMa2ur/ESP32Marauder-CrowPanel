@@ -5,6 +5,9 @@
 #ifdef HAS_SCREEN
   #include "Display.h"
 #endif
+#ifdef MARAUDER_CROWPANEL_ADV
+  #include "CrowPanelUi.h"
+#endif
 #ifdef HAS_GPS
   #include "GpsInterface.h"
 #endif
@@ -531,6 +534,25 @@ void ReconMission::writeManifest(bool complete) {
   #define RECON_SCREEN_WIDTH TFT_WIDTH
   #define RECON_SCREEN_HEIGHT TFT_HEIGHT
 #endif
+#ifdef MARAUDER_CROWPANEL_ADV
+  #define CP_BG crowpanel::kBg
+  #define CP_EDGE crowpanel::kEdge
+  #define CP_TEXT crowpanel::kText
+  #define CP_MUTED crowpanel::kMuted
+  #define CP_ACCENT crowpanel::kAccent
+  #define CP_DANGER crowpanel::kDanger
+  #define CP_LABEL crowpanel::kText
+  #define CP_BAR crowpanel::kAccent
+#else
+  #define CP_BG TFT_BLACK
+  #define CP_EDGE TFT_DARKGREY
+  #define CP_TEXT TFT_WHITE
+  #define CP_MUTED TFT_DARKGREY
+  #define CP_ACCENT TFT_MAGENTA
+  #define CP_DANGER TFT_RED
+  #define CP_LABEL TFT_LIGHTGREY
+  #define CP_BAR TFT_BLUE
+#endif
 void ReconMission::drawDashboard(uint32_t current_time) {
   #ifdef HAS_SCREEN
     if (last_dashboard && current_time - last_dashboard < 1000) return;
@@ -665,6 +687,13 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       const int16_t body_top = 48;
     #endif
     display_obj.tft.fillRect(0, body_top, RECON_SCREEN_WIDTH, RECON_SCREEN_HEIGHT - body_top, TFT_BLACK);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // ponytail: ReconMission exposes no current-channel member (only per-channel
+      // activity), so channel 0 hides the channel readout.
+      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                active_mode == ReconMode::WIFI_RECON ? "WiFi recon" : "BLE recon",
+                                0, true);
+    #endif
     #if RECON_SCREEN_HEIGHT < 160
       const int16_t graph_x = 4;
       const int16_t graph_y = body_top + 2;
@@ -797,9 +826,9 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       }
     #else
       const int16_t stats_x = 108;
-      display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+      display_obj.tft.setTextColor(CP_ACCENT, CP_BG);
       display_obj.tft.drawString("LIVE ACTIVITY", stats_x, body_top + 9, 1);
-      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      display_obj.tft.setTextColor(CP_TEXT, CP_BG);
       if (active_mode == ReconMode::WIFI_RECON) {
         snprintf(line, sizeof(line), "AP       %lu", (unsigned long)ap_count);
         display_obj.tft.drawString(line, stats_x, body_top + 28, 1);
@@ -811,7 +840,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
         display_obj.tft.drawString(line, stats_x, body_top + 70, 1);
         const bool deauth_active = last_deauth && current_time - last_deauth < RECON_DEAUTH_ALERT_MS;
         snprintf(line, sizeof(line), "DEAUTH   %lu", (unsigned long)deauth_count);
-        display_obj.tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
+        display_obj.tft.setTextColor(deauth_active ? CP_DANGER : CP_MUTED, CP_BG);
         display_obj.tft.drawString(line, stats_x, body_top + 84, 1);
       } else {
         snprintf(line, sizeof(line), "BLE DEVICE  %lu", (unsigned long)ble_count);
@@ -848,12 +877,16 @@ void ReconMission::drawDashboard(uint32_t current_time) {
     #else
       #if RECON_SCREEN_WIDTH >= 200
         const int16_t relation_y = body_top + 112;
-        display_obj.tft.drawFastHLine(6, relation_y - 6, RECON_SCREEN_WIDTH - 12, TFT_DARKGREY);
-        display_obj.tft.setTextColor(active_mode == ReconMode::WIFI_RECON
-                                       ? TFT_MAGENTA : TFT_CYAN, TFT_BLACK);
+        display_obj.tft.drawFastHLine(6, relation_y - 6, RECON_SCREEN_WIDTH - 12, CP_EDGE);
+        display_obj.tft.setTextColor(CP_ACCENT, CP_BG);
         display_obj.tft.drawString(active_mode == ReconMode::WIFI_RECON
                                      ? "NEW ASSOCIATIONS" : "DEVICE TYPE", 8, relation_y, 1);
+        #ifdef MARAUDER_CROWPANEL_ADV
+          const int16_t list_top = crowpanel::liveListTop(relation_y - 4);
+        #endif
         for (uint8_t row = 0; row < 3; row++) {
+          int rssi = 0;
+          bool has_rssi = false;
           if (active_mode == ReconMode::WIFI_RECON) {
             const UiRelationship& relationship =
                 ui_relationships[(ui_relationship_head + row) % 3];
@@ -869,9 +902,17 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             snprintf(line, sizeof(line), "%02X:%02X:%02X > %s",
                      event.mac[3], event.mac[4], event.mac[5],
                      event.label[0] ? event.label : "BLE");
+            rssi = event.rssi;
+            has_rssi = true;
           }
-          display_obj.tft.setTextColor(row == 2 ? TFT_CYAN : TFT_LIGHTGREY, TFT_BLACK);
-          display_obj.tft.drawString(line, 8, relation_y + 15 + row * 14, 1);
+          #ifdef MARAUDER_CROWPANEL_ADV
+            // UiRelationship carries no RSSI; only BLE events do.
+            crowpanel::ui::drawLiveRow(display_obj.tft, crowpanel::liveRowRect(list_top, row),
+                                       line, "", rssi, has_rssi);
+          #else
+            display_obj.tft.setTextColor(row == 2 ? TFT_CYAN : TFT_LIGHTGREY, TFT_BLACK);
+            display_obj.tft.drawString(line, 8, relation_y + 15 + row * 14, 1);
+          #endif
         }
 
         if (active_mode == ReconMode::WIFI_RECON) {
@@ -888,7 +929,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             if (channel_activity[first_channel + offset] > peak)
               peak = channel_activity[first_channel + offset];
           const int16_t strip_y = RECON_SCREEN_HEIGHT - 31;
-          display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+          display_obj.tft.setTextColor(CP_MUTED, CP_BG);
           display_obj.tft.drawString("CH", 3, strip_y + 7, 1);
           const int16_t chart_left = 22;
           const int16_t slot = (RECON_SCREEN_WIDTH - chart_left - 2) / visible_channels;
@@ -898,7 +939,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             const int16_t x = chart_left + offset * slot;
             display_obj.tft.fillRect(x + 1, strip_y + 16 - height,
                                      slot > 3 ? slot - 3 : 1, height,
-                                     channel_activity[index] ? TFT_BLUE : TFT_DARKGREY);
+                                     channel_activity[index] ? CP_BAR : CP_EDGE);
             #ifdef HAS_DUAL_BAND
               const uint8_t channel = wifi_scan_obj.dual_band_channels[index];
             #else
@@ -906,7 +947,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             #endif
             char channel_label[4];
             snprintf(channel_label, sizeof(channel_label), "%u", channel);
-            display_obj.tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            display_obj.tft.setTextColor(CP_LABEL, CP_BG);
             display_obj.tft.drawCentreString(channel_label, x + slot / 2, strip_y + 19, 1);
           }
         }
@@ -944,6 +985,14 @@ void ReconMission::drawDashboard(uint32_t current_time) {
 }
 #undef RECON_SCREEN_WIDTH
 #undef RECON_SCREEN_HEIGHT
+#undef CP_BG
+#undef CP_EDGE
+#undef CP_TEXT
+#undef CP_MUTED
+#undef CP_ACCENT
+#undef CP_DANGER
+#undef CP_LABEL
+#undef CP_BAR
 // GCOVR_EXCL_STOP
 
 void ReconMission::observeLists() {
