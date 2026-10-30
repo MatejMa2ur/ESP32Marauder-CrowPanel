@@ -2952,6 +2952,15 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
       gps_obj.enable_queue();
     #endif
   }
+  else if (scan_mode == WIFI_SCAN_GPS_DATA) {
+    #ifdef MARAUDER_CROWPANEL_ADV
+      display_obj.crowpanelScanHeader("GPS Data");
+      crowpanel::ui::drawStatCard(display_obj.tft, crowpanel::statRect(0), "FIX",  "--", crowpanel::kMuted);
+      crowpanel::ui::drawStatCard(display_obj.tft, crowpanel::statRect(1), "SATS", "0",  crowpanel::kText);
+      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8, "Reading GPS", 0, false);
+      display_obj.TOP_FIXED_AREA_2 = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+    #endif
+  }
   else if (scan_mode == GPS_TRACKER) {
     RunSetupGPSTracker(scan_mode);
   }
@@ -3133,12 +3142,12 @@ void WiFiScan::startWiFiAttacks(uint8_t scan_mode, uint16_t color, const char* t
       case WIFI_ATTACK_BAD_MSG_TARGETED: doing = "Flooding malformed frames"; break;
       case WIFI_ATTACK_AP_SPAM:
       case WIFI_ATTACK_CSA:
-      case WIFI_ATTACK_QUIET:
-      case WIFI_ATTACK_BEACON_LIST:      doing = "Flooding fake beacons"; break;
-      case WIFI_ATTACK_BEACON_SPAM:      // loop randomises ch 1-11 each second
-      case WIFI_ATTACK_RICK_ROLL:
-      case WIFI_ATTACK_FUNNY_BEACON:
-        doing = "Flooding fake beacons"; ch = 0; hopping = true; break;
+      case WIFI_ATTACK_QUIET:            doing = "Flooding fake APs"; break;
+      case WIFI_ATTACK_BEACON_LIST:      doing = "Flooding your SSID list"; break;
+      case WIFI_ATTACK_RICK_ROLL:        doing = "Flooding Rick Roll SSIDs"; break;
+      case WIFI_ATTACK_FUNNY_BEACON:     doing = "Flooding funny SSIDs"; break;
+      case WIFI_ATTACK_BEACON_SPAM:      // loop hops ch 1-11 each second (live via changeChannel)
+        doing = "Flooding random beacons"; hopping = true; break;
       default: break;
     }
     crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8, doing, ch, hopping);
@@ -4441,6 +4450,12 @@ void WiFiScan::RunEvilPortal(uint8_t scan_mode, uint16_t color) {
       display_obj.scanTitleBand(color);
       display_obj.scanTitle(" Evil Portal ");
     #endif
+    #ifdef MARAUDER_CROWPANEL_ADV
+      this->crowpanelScanCards("CLIENTS", false);
+      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                "Serving captive portal", this->set_channel, false);
+      display_obj.TOP_FIXED_AREA_2 = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+    #endif
     this->prepareScanStage(TFT_MAGENTA, TFT_BLACK);
   #endif
 
@@ -4777,6 +4792,26 @@ bool WiFiScan::RunGPSInfo(bool tracker, bool display, bool poi) {
           }
         }
         else {
+          #ifdef MARAUDER_CROWPANEL_ADV
+          {
+            const bool fix = gps_obj.getFixStatus();
+            // Redraw banner + cards each refresh so they survive the fillRect above.
+            crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                      "Reading GPS", 0, false);
+            crowpanel::ui::drawStatCard(display_obj.tft, crowpanel::statRect(0), "FIX",
+                                        fix ? "YES" : "NO",
+                                        fix ? crowpanel::ui::rssiColor(-50) : crowpanel::kDanger);
+            crowpanel::ui::drawStatCard(display_obj.tft, crowpanel::statRect(1), "SATS",
+                                        gps_obj.getNumSatsString().c_str(), crowpanel::kText);
+            int16_t gy = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+            const uint16_t vc = fix ? crowpanel::kText : crowpanel::kMuted;
+            display_obj.crowpanelBodyLine(("LAT  " + gps_obj.getLat()).c_str(), gy, vc); gy += crowpanel::kTextLineH;
+            display_obj.crowpanelBodyLine(("LON  " + gps_obj.getLon()).c_str(), gy, vc); gy += crowpanel::kTextLineH;
+            display_obj.crowpanelBodyLine(("ALT  " + String(gps_obj.getAlt(), 1) + " m").c_str(), gy, crowpanel::kMuted); gy += crowpanel::kTextLineH;
+            display_obj.crowpanelBodyLine(("ACC  " + String(gps_obj.getAccuracy(), 1) + " m").c_str(), gy, crowpanel::kMuted); gy += crowpanel::kTextLineH;
+            display_obj.crowpanelBodyLine(("UTC  " + gps_obj.getDatetime()).c_str(), gy, crowpanel::kMuted);
+          }
+          #else
           display_obj.tft.setCursor(0, SCREEN_HEIGHT / 3);
           display_obj.tft.setTextColor(TFT_CYAN);
           display_obj.tft.println(gps_obj.getFixStatus() ? F("  Good Fix: Yes") : F("  Good Fix: No"));
@@ -4787,6 +4822,7 @@ bool WiFiScan::RunGPSInfo(bool tracker, bool display, bool poi) {
           display_obj.tft.println("  Lon: " + gps_obj.getLon());
           display_obj.tft.println("  Alt: " + String(gps_obj.getAlt()));
           display_obj.tft.println("  D/T: " + gps_obj.getDatetime());
+          #endif
         }
       #endif
 
@@ -11203,9 +11239,12 @@ void WiFiScan::changeChannel(int chan) {
       if (this->wifi_initialized) {
         const char* doing = nullptr;
         switch (this->currentScanMode) {
-          case WIFI_SCAN_PROBE:  doing = "Listening for probe requests"; break;
-          case WIFI_SCAN_AP:     doing = "Sniffing beacon frames";       break;
-          case WIFI_SCAN_EAPOL:  doing = "Capturing EAPOL handshakes";   break;
+          case WIFI_SCAN_PROBE:       doing = "Listening for probe requests"; break;
+          case WIFI_SCAN_AP:          doing = "Sniffing beacon frames";       break;
+          case WIFI_SCAN_EAPOL:       doing = "Capturing EAPOL handshakes";   break;
+          case WIFI_ATTACK_BEACON_SPAM: doing = "Flooding random beacons";    break;
+          case REMOTE_ID_SCAN_ALL:
+          case REMOTE_ID_SCAN_TARGET: doing = "Detecting drone Remote ID";    break;
           default: break;
         }
         if (doing)
@@ -12937,6 +12976,9 @@ void WiFiScan::main(uint32_t currentTime)
         case WIFI_ATTACK_BEACON_LIST:
         case WIFI_ATTACK_RICK_ROLL:
         case WIFI_ATTACK_FUNNY_BEACON: count = this->packets_sent; break;
+        case WIFI_SCAN_EVIL_PORTAL:  count = (long)WiFi.softAPgetStationNum(); break;
+        case REMOTE_ID_SCAN_ALL:
+        case REMOTE_ID_SCAN_TARGET:  count = (long)this->remoteIdCount(); break;
         default: elapsed_idx = -1; break;
       }
       if (elapsed_idx >= 0) {

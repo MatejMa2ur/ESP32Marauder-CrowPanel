@@ -249,6 +249,10 @@ void WiFiScan::RunRemoteIdScan(uint8_t scan_mode, uint16_t color) {
                                 : "Remote ID Scan");  // clears the body, draws the header
       display_obj.tft.setTextWrap(false);
       display_obj.tft.setTextSize(1);
+      this->crowpanelScanCards("DRONES", false);
+      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                "Detecting drone Remote ID", 0, true);
+      display_obj.TOP_FIXED_AREA_2 = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
     #else
     display_obj.tft.fillRect(0, STATUS_BAR_WIDTH, SCREEN_WIDTH,
                              SCREEN_HEIGHT - STATUS_BAR_WIDTH, TFT_BLACK);
@@ -573,7 +577,7 @@ void WiFiScan::renderRemoteIdGlobal() {
         snapshotRemoteIds(remote_id_snapshots, REMOTE_ID_CAPACITY);
     const RemoteIdLayout layout = remoteIdLayoutForDisplay(SCREEN_WIDTH, SCREEN_HEIGHT);
     #ifdef MARAUDER_CROWPANEL_ADV
-      const int16_t top = crowpanel::kScanBodyTop;
+      const int16_t top = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
       const int16_t lx = crowpanel::kMargin;
     #else
     const int16_t top = 34;
@@ -712,7 +716,7 @@ void WiFiScan::renderRemoteIdTarget() {
   const RemoteIdRecord* record = &snapshot;
   #ifdef HAS_SCREEN
     #ifdef MARAUDER_CROWPANEL_ADV
-      const int16_t top = crowpanel::kScanBodyTop;
+      const int16_t top = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
       const int16_t lx = crowpanel::kMargin;
     #else
     const int16_t top = 34;
