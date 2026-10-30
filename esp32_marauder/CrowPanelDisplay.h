@@ -145,8 +145,14 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
   // Marauder calls tft.init(). The backlight + reset live on the TCA9534 I2C
   // expander, which must be driven BEFORE the RGB panel init -- do that first.
   bool init() {
+    // Marauder calls tft.init() on every scan/menu switch. On the RGB panel that
+    // would re-run power-on (backlight reset, blank) and re-allocate the PSRAM
+    // framebuffer, so bring up once; later calls are no-ops.
+    static bool ready = false;
+    if (ready) return true;
     crowpanel_adv_panel_power_on();
-    return lgfx::LGFX_Device::init();
+    ready = lgfx::LGFX_Device::init();
+    return ready;
   }
 
   // RGB panel renders directly from the PSRAM framebuffer, so there is no

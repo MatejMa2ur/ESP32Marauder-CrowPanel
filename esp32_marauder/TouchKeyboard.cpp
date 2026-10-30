@@ -385,6 +385,10 @@ bool keyboardInput(char *buffer, size_t bufLen, const char *title) {
       lastTouchTime = now;
 
       KeyboardResult r = handleKeyboardTouch(x, y, buffer, bufLen, layout, caps);
+      #ifdef MARAUDER_CROWPANEL_ADV
+        // One key per tap; OK/Cancel must not leak their touch into the menu.
+        while (display_obj.updateTouch(&x, &y)) delay(10);
+      #endif
 
       if (r == KB_CHANGED) {
         drawTextArea(title, buffer);

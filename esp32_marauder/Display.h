@@ -139,7 +139,7 @@ class Display
 
     uint8_t TOP_FIXED_AREA_2 = 48;
     uint8_t print_delay_1, print_delay_2 = 10;
-    uint8_t current_banner_pos = SCREEN_WIDTH;
+    uint16_t current_banner_pos = SCREEN_WIDTH;
 
     LinkedList<String>* display_buffer;
 

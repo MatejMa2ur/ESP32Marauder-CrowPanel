@@ -481,6 +481,9 @@ void MenuFunctions::main(uint32_t currentTime)
         display_obj.tft.setCursor((SCREEN_WIDTH - flashWidth) / 2, SCREEN_HEIGHT - 33);
         display_obj.tft.print(poiFlash);
         delay(200);
+        #ifdef MARAUDER_CROWPANEL_ADV
+          while (display_obj.updateTouch(&t_x, &t_y)) delay(10);  // one POI per tap
+        #endif
         x = -1;
         y = -1;
         return;
@@ -591,6 +594,10 @@ void MenuFunctions::main(uint32_t currentTime)
 
         // Take us back to the menu
         changeMenu(current_menu, true);
+        #ifdef MARAUDER_CROWPANEL_ADV
+          // Eat the stop tap, or its release selects the menu row under the finger.
+          while (display_obj.updateTouch(&t_x, &t_y)) delay(10);
+        #endif
       }
 
       x = -1;
@@ -812,6 +819,13 @@ void MenuFunctions::main(uint32_t currentTime)
         }
       } else {
         menu_button = display_obj.menuButton(&t_x, &t_y, pressed);
+        // Info/GPS screens hold only a Back node: any tap goes back.
+        if (menu_button >= 0 &&
+            (wifi_scan_obj.currentScanMode == SHOW_INFO ||
+             wifi_scan_obj.currentScanMode == WIFI_SCAN_GPS_DATA ||
+             wifi_scan_obj.currentScanMode == GPS_TRACKER ||
+             wifi_scan_obj.currentScanMode == WIFI_SCAN_GPS_NMEA))
+          menu_button = SELECT_BUTTON;
       }
       #else
       if (menu_navigation_active) {
@@ -982,7 +996,22 @@ void MenuFunctions::main(uint32_t currentTime)
           }
         }
         if(menu_button == SELECT_BUTTON) {
+          #ifdef MARAUDER_CROWPANEL_ADV
+            Menu *tapped_menu = current_menu;
+            const int tapped = current_menu->selected;
+          #endif
           current_menu->list->get(current_menu->selected).callable();
+          #ifdef MARAUDER_CROWPANEL_ADV
+            // Toggle lists (APs/stations/SSIDs) flip node.selected without
+            // redrawing; repaint the tapped row from its real state.
+            if (current_menu == tapped_menu &&
+                (wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF || wifi_scan_obj.currentScanMode == WIFI_CONNECTED) &&
+                tapped < current_menu->list->size() &&
+                tapped >= this->menu_start_index && tapped - this->menu_start_index < BUTTON_SCREEN_LIMIT) {
+              if (current_menu->list->get(tapped).selected) this->buttonSelected(tapped - this->menu_start_index, tapped);
+              else this->buttonNotSelected(tapped - this->menu_start_index, tapped);
+            }
+          #endif
         }
         else {
           if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF) ||
