@@ -20,6 +20,7 @@
   #include "PoomDisplay.h"
 #elif defined(MARAUDER_CROWPANEL_ADV)
   #include "CrowPanelDisplay.h"
+  #include "CrowPanelLayout.h"
 #else
   #include <TFT_eSPI.h>
 #endif
@@ -139,7 +140,7 @@ class Display
 
     uint8_t TOP_FIXED_AREA_2 = 48;
     uint8_t print_delay_1, print_delay_2 = 10;
-    uint8_t current_banner_pos = SCREEN_WIDTH;
+    uint16_t current_banner_pos = SCREEN_WIDTH;
 
     LinkedList<String>* display_buffer;
 
@@ -192,6 +193,35 @@ class Display
     void RunSetup();
     void showCenterText(const char* text, int y, bool small_pp = false, uint8_t text_size = BANNER_TEXT_SIZE);
     void touchToExit();
+    void scanTitleBand(uint16_t color);
+    void scanTitle(const String& title);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // GD-style scan header (title, STOP) + cleared body; toolbar state below.
+      char crowpanel_title[48] = "";
+      bool crowpanel_toolbar = false;  // channel/hop toolbar shown under the header
+      bool crowpanel_hop = false;
+      uint8_t crowpanel_ch = 1;
+      bool crowpanel_hop_en = true;    // false: HOP drawn disabled and ignored (packet monitor)
+      void crowpanelScanHeader(const char* title);
+      void crowpanelToolbar();
+      // One 16px text row in the body at x=18 (text size 2), cleared first.
+      void crowpanelBodyLine(const char* text, int16_t y, uint16_t color);
+      // Marauder-GD stat card row (statRect/kStatRowBottom from CrowPanelLayout.h).
+      // crowpanelStatsRow draws n (<=4) cards and, if bodyTop > 0, sets
+      // TOP_FIXED_AREA_2 so body text/rows start below them. crowpanelStatsUpdate
+      // redraws only a card's value area; gate calls with crowpanelStatsDue() to
+      // cap refresh at ~2Hz.
+      static constexpr uint8_t kMaxCrowStats = 4;
+      crowpanel::Rect crow_stat_rect[kMaxCrowStats];
+      uint16_t crow_stat_color[kMaxCrowStats] = {0, 0, 0, 0};
+      uint8_t crow_stat_n = 0;
+      uint32_t crow_stats_last_ms = 0;
+      void crowpanelStatsRow(const crowpanel::Rect* rects, uint8_t n,
+                             const char* const* labels, const char* const* values,
+                             const uint16_t* colors, int16_t bodyTop);
+      void crowpanelStatsUpdate(uint8_t i, const char* value);
+      bool crowpanelStatsDue(uint32_t now);
+    #endif
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);
     void setCalData(bool landscape = false);

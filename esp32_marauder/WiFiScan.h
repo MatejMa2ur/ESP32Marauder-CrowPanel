@@ -468,10 +468,20 @@ class WiFiScan
         (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
         defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV))
       static const uint8_t PACKET_MONITOR_COLUMN_WIDTH = 4;
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      // Graph spans x=PACKET_MONITOR_GRAPH_LEFT..PACKET_MONITOR_GRAPH_RIGHT; value
+      // labels sit at PACKET_MONITOR_LABEL_X (CrowPanel: 18..782 content column).
+      #if defined(MARAUDER_CROWPANEL_ADV)
+        static const uint8_t PACKET_MONITOR_GRAPH_LEFT = 44;
+        static const uint16_t PACKET_MONITOR_GRAPH_RIGHT = 782;
+        static const uint8_t PACKET_MONITOR_LABEL_X = 18;
+      #elif defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         static const uint8_t PACKET_MONITOR_GRAPH_LEFT = 24;
+        static const uint16_t PACKET_MONITOR_GRAPH_RIGHT = SCREEN_WIDTH;
+        static const uint8_t PACKET_MONITOR_LABEL_X = 2;
       #else
         static const uint8_t PACKET_MONITOR_GRAPH_LEFT = 32;
+        static const uint16_t PACKET_MONITOR_GRAPH_RIGHT = SCREEN_WIDTH;
+        static const uint8_t PACKET_MONITOR_LABEL_X = 2;
       #endif
       static const uint16_t PACKET_MONITOR_REFRESH_MS = 200;
       #if defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
@@ -483,7 +493,7 @@ class WiFiScan
             (SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT) / PACKET_MONITOR_HISTORY_LEN;
       #else
         static const uint16_t PACKET_MONITOR_HISTORY_LEN =
-            (SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT) / PACKET_MONITOR_COLUMN_WIDTH;
+            (PACKET_MONITOR_GRAPH_RIGHT - PACKET_MONITOR_GRAPH_LEFT) / PACKET_MONITOR_COLUMN_WIDTH;
         static const uint8_t PACKET_MONITOR_COLUMN_STEP = PACKET_MONITOR_COLUMN_WIDTH;
       #endif
       uint16_t packet_monitor_beacons[PACKET_MONITOR_HISTORY_LEN] = {};
@@ -914,6 +924,15 @@ class WiFiScan
     size_t retainedAccessPointCount() const;
     size_t retainedStationCount() const;
     size_t retainedBleDeviceCount() const;
+
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // millis() timestamp of the current scan screen, for the ELAPSED stat
+      // card; set by the scan family's setup, read each loop in main().
+      uint32_t crowpanel_scan_start_ms = 0;
+      // Two stat cards (value + ELAPSED). toolbar: beside the channel toolbar
+      // (never shows the channel); else the first two cards of the stat row.
+      void crowpanelScanCards(const char* label, bool toolbar);
+    #endif
 
     bool channel_hop = false;
     uint8_t connected_devices = 0;

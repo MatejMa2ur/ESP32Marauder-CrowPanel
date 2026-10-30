@@ -131,10 +131,7 @@ https://www.online-utility.org/image/convert/to/XBM
 
 #endif
 
-struct _CtorProbe { _CtorProbe(const char* m){ ets_printf("%s\n", m); } };
-static _CtorProbe _probeA(">>> CTOR A: before wifi_scan_obj <<<");
 WiFiScan wifi_scan_obj;
-static _CtorProbe _probeB(">>> CTOR B: after wifi_scan_obj <<<");
 EvilPortal evil_portal_obj;
 Buffer buffer_obj;
 Settings settings_obj;
@@ -156,13 +153,10 @@ ReconMission recon_obj;
   BatteryInterface battery_obj;
 #endif
 
-static _CtorProbe _probeC(">>> CTOR C: before display_obj <<<");
 #ifdef HAS_SCREEN
   Display display_obj;
-  static _CtorProbe _probeD(">>> CTOR D: after display_obj <<<");
   MenuFunctions menu_function_obj;
 #endif
-static _CtorProbe _probeE(">>> CTOR E: after menu_function_obj <<<");
 
 #if defined(HAS_SD) && !defined(HAS_C5_SD)
   SDInterface sd_obj;
@@ -205,7 +199,12 @@ uint32_t currentTime  = 0;
 // Helper macros for LEDC API compatibility (2.x vs 3.x board package)
 #ifdef HAS_SCREEN
   #ifndef HAS_MINI_SCREEN
-    #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // Backlight is the I2C MCU at 0x30, not LEDC. duty 0 (backlightOff) is skipped:
+      // it runs before panel power-on and we don't want an I2C write then.
+      #define BL_SETUP()       do {} while(0)
+      #define BL_SET(duty)     do { if (duty) crowpanel_adv_set_brightness((duty) * 100 / 255); } while(0)
+    #elif ESP_ARDUINO_VERSION_MAJOR >= 3
       #define BL_SETUP()       ledcAttach(TFT_BL, BL_FREQ, BL_RESOLUTION)
       #define BL_SET(duty)     ledcWrite(TFT_BL, (duty))
     #else
@@ -317,21 +316,11 @@ uint32_t currentTime  = 0;
 
 #ifdef HAS_C5_SD
   SPIClass sharedSPI(SPI);
-  static _CtorProbe _probeF(">>> CTOR F: before sd_obj(C5) <<<");
   SDInterface sd_obj = SDInterface(&sharedSPI, SD_CS);
-  static _CtorProbe _probeG(">>> CTOR G: after sd_obj(C5) <<<");
 #endif
-
-// Weak-symbol tripwire: the arduino core calls initVariant() at the very end of
-// initArduino(), immediately before the loopTask runs setup(). If this prints but
-// SETUP TOP does not, the hang is between initArduino finishing and setup starting.
-extern "C" void initVariant() {
-  ets_printf("\n>>> initVariant: initArduino complete <<<\n");
-}
 
 void setup()
 {
-  ets_printf("\n>>> SETUP TOP reached <<<\n");
   randomSeed(esp_random());
   
   #ifndef DEVELOPER
@@ -339,7 +328,6 @@ void setup()
   #endif
   
   Serial.begin(115200);
-  Serial.println("\n### MARK A: Serial up ###"); Serial.flush();
 
   #ifdef HAS_ACT_LED
     pinMode(ACT_LED_PIN, OUTPUT);
@@ -359,14 +347,13 @@ void setup()
     sharedSPI.begin(SD_SCK, SD_MISO, SD_MOSI);
     delay(100);
   #endif
-  Serial.println("### MARK B: after C5_SD SPI ###"); Serial.flush();
 
   #if defined(MARAUDER_M5STICKCP2) // Prevent StickCP2 from turning off when disconnect USB cable
     pinMode(POWER_HOLD_PIN, OUTPUT);
     digitalWrite(POWER_HOLD_PIN, HIGH);
   #endif
   
-  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM) && !defined(MARAUDER_M5STACK_CORE2_AWS)
+  #if defined(HAS_SCREEN) && !defined(MARAUDER_POOM) && !defined(MARAUDER_M5STACK_CORE2_AWS) && !defined(MARAUDER_CROWPANEL_ADV)
     pinMode(TFT_BL, OUTPUT);
   #endif
 
@@ -374,9 +361,7 @@ void setup()
     core2PowerInit();
   #endif
   
-  Serial.println("### MARK C: before backlightOff ###"); Serial.flush();
   backlightOff();
-  Serial.println("### MARK D: after backlightOff ###"); Serial.flush();
   #if BATTERY_ANALOG_ON == 1
     pinMode(BATTERY_PIN, OUTPUT);
     pinMode(CHARGING_PIN, INPUT);
@@ -419,12 +404,10 @@ void setup()
     #endif
   #endif
 
-  Serial.println("### MARK E: before display RunSetup ###"); Serial.flush();
   #ifdef HAS_SCREEN
     display_obj.RunSetup();
     display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
   #endif
-  Serial.println("### MARK F: after display RunSetup ###"); Serial.flush();
 
   // Init PWM brightness AFTER display init (so ledcAttach overrides TFT_eSPI's pinMode)
   #ifndef HAS_MINI_SCREEN
@@ -542,6 +525,9 @@ void setup()
 void loop()
 {
   currentTime = millis();
+  #if defined(MARAUDER_CROWPANEL_ADV) && !defined(CROWPANEL_ADV_ESP_LCD_BUS)
+    crowpanel_adv_lcd_watchdog_report();
+  #endif
   bool mini = false;
 
   #ifdef SCREEN_BUFFER

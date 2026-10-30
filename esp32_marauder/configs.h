@@ -3597,13 +3597,40 @@
   #define I2C_SDA 15
   #define I2C_SCL 16
   // MENU_FONT must be a LovyanGFX GFXfont (the bare Adafruit FreeMono9pt7b symbol
-  // isn't linked without TFT_eSPI). ponytail: swap to another fonts::* face if a
+  // isn't linked without TFT_eSPI). Swap to another fonts::* face if a
   // different look is wanted.
   #undef MENU_FONT
   #define MENU_FONT &fonts::FreeMono9pt7b
   // Cod3rs accent (#755AFB) for the status bar / theme.
   #undef STATUSBAR_COLOR
   #define STATUSBAR_COLOR 0x72DF
+  // Menu geometry: Pancake's 320x22 keys are a thin strip on this 800x480
+  // panel and too small to hit with a finger. Full-width 48px keys, 8 per page
+  // (48 status bar + 8 * 49 = 440 < 480). Tune KEY_H / BUTTON_SCREEN_LIMIT together.
+  #undef KEY_X
+  #undef KEY_Y
+  #undef KEY_W
+  #undef KEY_H
+  #undef KEY_TEXTSIZE
+  #undef BUTTON_PADDING
+  #undef BUTTON_SCREEN_LIMIT
+  #define KEY_X (TFT_WIDTH / 2)
+  #define KEY_Y (TOP_FIXED_AREA + KEY_H / 2)
+  #define KEY_W TFT_WIDTH
+  #define KEY_H 48
+  #define KEY_TEXTSIZE 2
+  #define BUTTON_PADDING 40
+  #define BUTTON_SCREEN_LIMIT 8
+  // All 14 2.4GHz channels on one screen (Pancake's 7 forced paging). The
+  // channel-activity x spacing is kRowW/(CHAN_PER_PAGE*2), so this also narrows
+  // the bars to fit the 800px width.
+  #undef CHAN_PER_PAGE
+  #define CHAN_PER_PAGE 14
+  // Scan text view: (480 - kScanBodyTop 72) / 16px lines (CrowPanelLayout.h).
+  #ifdef MAX_SCREEN_BUFFER
+    #undef MAX_SCREEN_BUFFER
+  #endif
+  #define MAX_SCREEN_BUFFER 25
   // Backlight pin (GPIO2) for the LEDC brightness control path.
   #ifndef TFT_BL
     #define TFT_BL 2
@@ -3628,6 +3655,12 @@
   // The board has no such LED, so don't build it.
   #ifdef HAS_NEOPIXEL_LED
     #undef HAS_NEOPIXEL_LED
+  #endif
+  // No GPS on this panel. Pancake's GPS UART uses GPIO13/14, which here are RGB
+  // data lines (G4/G5): the baud-probe loop re-muxes them to UART forever and
+  // the whole screen cycles colours. A GPS would need other free pins.
+  #ifdef HAS_GPS
+    #undef HAS_GPS
   #endif
   // No battery fuel gauge on this panel board.
   #ifdef HAS_MAX1704X

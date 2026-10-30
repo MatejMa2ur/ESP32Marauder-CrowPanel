@@ -243,6 +243,17 @@ void WiFiScan::RunRemoteIdScan(uint8_t scan_mode, uint16_t color) {
     // Preserve the status bar at the top of the display. Clearing the entire
     // screen erases its background, while periodic status updates repaint only
     // individual fields and leave the bar looking fragmented.
+    #ifdef MARAUDER_CROWPANEL_ADV
+      display_obj.scanTitle(scan_mode == REMOTE_ID_SCAN_TARGET
+                                ? "Remote ID Target"
+                                : "Remote ID Scan");  // clears the body, draws the header
+      display_obj.tft.setTextWrap(false);
+      display_obj.tft.setTextSize(1);
+      this->crowpanelScanCards("DRONES", false);
+      crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                "Detecting drone Remote ID", 0, true);
+      display_obj.TOP_FIXED_AREA_2 = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+    #else
     display_obj.tft.fillRect(0, STATUS_BAR_WIDTH, SCREEN_WIDTH,
                              SCREEN_HEIGHT - STATUS_BAR_WIDTH, TFT_BLACK);
     display_obj.tft.setTextWrap(false);
@@ -252,6 +263,7 @@ void WiFiScan::RunRemoteIdScan(uint8_t scan_mode, uint16_t color) {
                                         ? "Remote ID Target"
                                         : "Remote ID Scan",
                                     TFT_WIDTH / 2, 16, 2);
+    #endif
     #ifdef HAS_ILI9341
       display_obj.touchToExit();
     #endif
@@ -564,7 +576,13 @@ void WiFiScan::renderRemoteIdGlobal() {
     const size_t recordCount =
         snapshotRemoteIds(remote_id_snapshots, REMOTE_ID_CAPACITY);
     const RemoteIdLayout layout = remoteIdLayoutForDisplay(SCREEN_WIDTH, SCREEN_HEIGHT);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      const int16_t top = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+      const int16_t lx = crowpanel::kMargin;
+    #else
     const int16_t top = 34;
+    const int16_t lx = 2;
+    #endif
     const int16_t contentHeight = SCREEN_HEIGHT - top;
     const int16_t legendHeight = layout == RemoteIdLayout::SplitListGrid ? 12 : 0;
     const int16_t listHeight = layout == RemoteIdLayout::SplitListGrid
@@ -573,9 +591,14 @@ void WiFiScan::renderRemoteIdGlobal() {
     display_obj.tft.fillRect(0, top, SCREEN_WIDTH, contentHeight, TFT_BLACK);
     display_obj.tft.setTextSize(1);
     display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    display_obj.tft.setCursor(2, top + 2);
+    display_obj.tft.setCursor(lx, top + 2);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // No "CH:" here: the channel is deliberately not shown at the top of CrowPanel screens.
+      display_obj.tft.print("RID devices: " + String(recordCount));
+    #else
     display_obj.tft.print("RID devices: " + String(recordCount) +
                           " CH:" + String(set_channel));
+    #endif
     const size_t rows = layout == RemoteIdLayout::Compact ? 5 :
                         static_cast<size_t>((listHeight - 14) / 10);
     const size_t first = recordCount > rows
@@ -587,7 +610,7 @@ void WiFiScan::renderRemoteIdGlobal() {
       char transports[16];
       remoteIdFormatTransports(record->transportMask, transports,
                                sizeof(transports));
-      display_obj.tft.setCursor(2, y);
+      display_obj.tft.setCursor(lx, y);
       display_obj.tft.setTextColor(rssiToColor(record->rssi), TFT_BLACK);
       String id = record->hasUasId ? String(record->uasId) : macToString(record->mac);
       display_obj.tft.print(String(i) + ":" + String(record->rssi) +
@@ -692,12 +715,19 @@ void WiFiScan::renderRemoteIdTarget() {
   if (!snapshotRemoteIdTarget(snapshot)) return;
   const RemoteIdRecord* record = &snapshot;
   #ifdef HAS_SCREEN
-    display_obj.tft.fillRect(0, 34, SCREEN_WIDTH, SCREEN_HEIGHT - 34, TFT_BLACK);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      const int16_t top = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+      const int16_t lx = crowpanel::kMargin;
+    #else
+    const int16_t top = 34;
+    const int16_t lx = 2;
+    #endif
+    display_obj.tft.fillRect(0, top, SCREEN_WIDTH, SCREEN_HEIGHT - top, TFT_BLACK);
     display_obj.tft.setTextSize(1);
     display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    int16_t y = 36;
+    int16_t y = top + 2;
     auto line = [&](const String& value, uint16_t color = TFT_WHITE) {
-      display_obj.tft.setCursor(2, y);
+      display_obj.tft.setCursor(lx, y);
       display_obj.tft.setTextColor(color, TFT_BLACK);
       display_obj.tft.print(value);
       y += 11;

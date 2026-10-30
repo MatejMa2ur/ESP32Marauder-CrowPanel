@@ -4,6 +4,10 @@
 
 #ifdef HAS_TOUCH
 
+#ifdef MARAUDER_CROWPANEL_ADV
+  #include "CrowPanelUi.h"
+#endif
+
 extern Display display_obj;
 
 // Keyboard will occupy the bottom half of the screen.
@@ -39,7 +43,127 @@ enum KeyboardLayout {
   LAYOUT_SYMBOLS
 };
 
+static bool appendChar(char *buffer, size_t bufLen, char c) {
+  size_t len = strlen(buffer);
+  if (len + 1 < bufLen) {
+    buffer[len] = c;
+    buffer[len + 1] = '\0';
+    return true;
+  }
+  return false;
+}
+
+static bool backspaceChar(char *buffer) {
+  size_t len = strlen(buffer);
+  if (len == 0) return false;
+  buffer[len - 1] = '\0';
+  return true;
+}
+
+#ifdef MARAUDER_CROWPANEL_ADV
+// CrowPanel: Marauder-GD style keyboard. Keys are generated once per
+// layout/caps change into s_keys and used for both drawing and hit-testing.
+struct CrowKey {
+  crowpanel::Rect r;
+  char label[8];
+  char ch;  // character to append (0 for special keys)
+  KeyboardResult act;
+  crowpanel::ui::Style style;
+};
+
+static const int CROW_MAX_KEYS = 48;
+
+static CrowKey s_keys[CROW_MAX_KEYS];
+static int s_nKeys = 0;
+
+static void crowAddKey(int16_t x, int16_t row, int16_t w, const char *label, char ch,
+                       KeyboardResult act, crowpanel::ui::Style style) {
+  if (s_nKeys >= CROW_MAX_KEYS) return;
+  CrowKey &k = s_keys[s_nKeys++];
+  k.r = {x, (int16_t)(crowpanel::kKbTop + row * (crowpanel::kKbKeyH + crowpanel::kKbGap)), w, crowpanel::kKbKeyH};
+  strlcpy(k.label, label, sizeof(k.label));
+  k.ch = ch;
+  k.act = act;
+  k.style = style;
+}
+
+static void crowBuildKeys(KeyboardLayout layout, bool caps) {
+  using crowpanel::ui::Style;
+  const int16_t pitch = crowpanel::kKbKeyW + crowpanel::kKbGap;
+  const char *rows[4] = {
+    layout == LAYOUT_ALPHA ? ROW0_ALPHA : ROW0_SYM,
+    layout == LAYOUT_ALPHA ? ROW1_ALPHA : ROW1_SYM,
+    layout == LAYOUT_ALPHA ? ROW2_ALPHA : ROW2_SYM,
+    layout == LAYOUT_ALPHA ? ROW3_ALPHA : ROW3_SYM
+  };
+  s_nKeys = 0;
+  for (int r = 0; r < 4; ++r) {
+    int len = strlen(rows[r]);
+    int16_t xOff = (r == 3 && layout == LAYOUT_ALPHA) ? 0 : ((10 - len) * pitch) / 2;
+    for (int i = 0; i < len; ++i) {
+      char c = rows[r][i];
+      if (layout == LAYOUT_ALPHA && caps && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+      char l[2] = { c, '\0' };
+      crowAddKey(crowpanel::kKbX + xOff + i * pitch, r, crowpanel::kKbKeyW, l, c, KB_CHANGED, Style::Neutral);
+    }
+  }
+  if (layout == LAYOUT_ALPHA) {
+    crowAddKey(crowpanel::kKbX + 8 * pitch, 3, 2 * crowpanel::kKbKeyW + crowpanel::kKbGap, "Shift", 0, KB_TOGGLE_CAPS,
+               caps ? Style::Primary : Style::Neutral);
+  }
+  const int16_t segW = crowpanel::kKbSegW;
+  const int16_t segP = segW + crowpanel::kKbGap;
+  crowAddKey(crowpanel::kKbX, 4, segW, "Cancel", 0, KB_CANCEL, Style::Neutral);
+  crowAddKey(crowpanel::kKbX + segP, 4, segW, layout == LAYOUT_ALPHA ? "?123" : "ABC", 0, KB_TOGGLE_LAYOUT, Style::Neutral);
+  crowAddKey(crowpanel::kKbX + 2 * segP, 4, 2 * segW + crowpanel::kKbGap, "Space", ' ', KB_CHANGED, Style::Neutral);
+  crowAddKey(crowpanel::kKbX + 4 * segP, 4, segW, "Bksp", 0, KB_CHANGED, Style::Neutral);
+  crowAddKey(crowpanel::kKbX + 5 * segP, 4, segW, "OK", 0, KB_DONE, Style::Primary);
+}
+
+static int crowKeyAt(uint16_t tx, uint16_t ty) {
+  for (int i = 0; i < s_nKeys; ++i) {
+    if (crowpanel::contains(s_keys[i].r, (int16_t)tx, (int16_t)ty)) return i;
+  }
+  return -1;
+}
+
+static void crowDrawKey(int i, bool pressed) {
+  crowpanel::ui::drawButton(display_obj.tft, s_keys[i].r, s_keys[i].label, s_keys[i].style, pressed);
+}
+
+// Backspace is the only special key that edits the buffer without a char.
+static KeyboardResult crowApply(int i, char *buffer, size_t bufLen) {
+  const CrowKey &k = s_keys[i];
+  if (k.ch) return appendChar(buffer, bufLen, k.ch) ? KB_CHANGED : KB_NONE;
+  if (k.act == KB_CHANGED) return backspaceChar(buffer) ? KB_CHANGED : KB_NONE;  // Bksp
+  return k.act;
+}
+#endif
+
 static void drawTextArea(const char *title, const char *buffer) {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    {
+      using namespace crowpanel;
+      auto &tft = display_obj.tft;
+      ui::drawHeader(tft, title ? title : "", "", false, false);
+      const Rect box = kKbTextBox;
+      tft.fillRect(0, 63, 800, 69, kBg);
+      tft.fillRoundRect(box.x, box.y, box.w, box.h, ui::kRadius, kPanel);
+      tft.drawRoundRect(box.x, box.y, box.w, box.h, ui::kRadius, kEdge);
+      tft.setFont(&fonts::FreeSans12pt7b);
+      tft.setTextColor(kText, kPanel);
+      tft.setTextDatum(lgfx::middle_left);
+      const char *txt = buffer ? buffer : "";
+      // Show the tail of the text if it is wider than the box.
+      while (*txt && tft.textWidth(txt) > box.w - 32) txt++;
+      const int16_t cy = box.y + box.h / 2;
+      tft.drawString(txt, box.x + 12, cy);
+      const int16_t cx = box.x + 14 + tft.textWidth(txt);
+      tft.drawFastVLine(cx, cy - 14, 28, kAccent);
+      ui::restore(tft);
+    }
+    return;
+  #endif
   int16_t areaHeight = display_obj.tft.height() - kbHeight();
 
   // Clear text area
@@ -62,6 +186,12 @@ static void drawTextArea(const char *title, const char *buffer) {
 }
 
 static void drawKeyboard(KeyboardLayout layout, bool caps) {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    display_obj.tft.fillRect(0, 132, 800, 348, crowpanel::kBg);
+    crowBuildKeys(layout, caps);
+    for (int i = 0; i < s_nKeys; ++i) crowDrawKey(i, false);
+    return;
+  #endif
   const int16_t kY = kbYStart();
   const int16_t kH = kbHeight();
   const int16_t kX = kbXStart();
@@ -189,16 +319,6 @@ static void drawKeyboard(KeyboardLayout layout, bool caps) {
   display_obj.tft.drawRect(x4, rowY, (x5 - x4), cellH, TFT_BLACK);
   display_obj.tft.setCursor(x4 + 4, rowY + cellH / 2 - 4);
   display_obj.tft.print("OK");
-}
-
-static bool appendChar(char *buffer, size_t bufLen, char c) {
-  size_t len = strlen(buffer);
-  if (len + 1 < bufLen) {
-    buffer[len] = c;
-    buffer[len + 1] = '\0';
-    return true;
-  }
-  return false;
 }
 
 static KeyboardResult handleKeyboardTouch(uint16_t tx, uint16_t ty,
@@ -333,12 +453,7 @@ static KeyboardResult handleKeyboardTouch(uint16_t tx, uint16_t ty,
 
     // BKSP (x3..x4)
     if (tx >= x3 && tx < x4) {
-      size_t len = strlen(buffer);
-      if (len > 0) {
-        buffer[len - 1] = '\0';
-        return KB_CHANGED;
-      }
-      return KB_NONE;
+      return backspaceChar(buffer) ? KB_CHANGED : KB_NONE;
     }
 
     // OK (x4..x5)
@@ -369,14 +484,32 @@ bool keyboardInput(char *buffer, size_t bufLen, const char *title) {
   drawTextArea(title, buffer);
   drawKeyboard(layout, caps);
 
+  #ifndef MARAUDER_CROWPANEL_ADV
   uint32_t lastTouchTime = 0;
   const uint32_t debounceMs = 120;
+  #endif
 
   while (true) {
     uint16_t x = 0, y = 0;
     uint8_t touched = display_obj.updateTouch(&x, &y, TOUCH_THRESHOLD);
 
     if (touched) {
+      #ifdef MARAUDER_CROWPANEL_ADV
+        // Track the key at touch-down; fire only if released on the same key.
+        // Waiting for release also keeps OK/Cancel from leaking into the menu.
+        const int down = crowKeyAt(x, y);
+        if (down >= 0) crowDrawKey(down, true);
+        uint16_t lx = x, ly = y;
+        while (display_obj.updateTouch(&x, &y)) {
+          lx = x;
+          ly = y;
+          delay(10);
+        }
+        if (down >= 0) crowDrawKey(down, false);
+        KeyboardResult r = (down >= 0 && crowKeyAt(lx, ly) == down)
+                             ? crowApply(down, buffer, bufLen)
+                             : KB_NONE;
+      #else
       uint32_t now = millis();
       if (now - lastTouchTime < debounceMs) {
         // "debounce"
@@ -385,6 +518,7 @@ bool keyboardInput(char *buffer, size_t bufLen, const char *title) {
       lastTouchTime = now;
 
       KeyboardResult r = handleKeyboardTouch(x, y, buffer, bufLen, layout, caps);
+      #endif
 
       if (r == KB_CHANGED) {
         drawTextArea(title, buffer);

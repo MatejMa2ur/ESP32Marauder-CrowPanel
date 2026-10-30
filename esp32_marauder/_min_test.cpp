@@ -1,3 +1,7 @@
+// ponytail: the crowpanel_adv_5 env builds the full sketch; in from-source
+// (ESP-IDF) mode build_src_filter is ignored, so exclude this standalone probe
+// here to avoid duplicate setup()/loop(). Active only in the crowpanel_test env.
+#ifndef MARAUDER_CROWPANEL_ADV
 // Minimal faithful reproduction of Elecrow's CrowPanel-Advance-5 lesson-03
 // bring-up: I2C scan, TCA9534 expander (0x18) backlight+reset, then LGFX RGB
 // init + fillScreen(RED). Isolates panel/backlight hardware from Marauder.
@@ -80,3 +84,5 @@ void loop() {
   Serial.printf(">>> fill %u alive <<<\n", n++);
   delay(1500);
 }
+
+#endif  // !MARAUDER_CROWPANEL_ADV

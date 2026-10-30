@@ -2,6 +2,9 @@
 #include "BootSplashBitmap.h"
 #include "DisplayLine.h"
 #include "lang_var.h"
+#ifdef MARAUDER_CROWPANEL_ADV
+  #include "CrowPanelUi.h"
+#endif
 
 #ifdef HAS_SCREEN
 
@@ -118,9 +121,9 @@ uint8_t Display::updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold) {
             // which already line up with the panel in a landscape rotation.
             // ponytail: if a future mount/rotation disagrees, flip axes here per
             // tft.getRotation() -- this is the on-device touch tuning knob.
-            if (raw_x >= SCREEN_WIDTH || raw_y >= SCREEN_HEIGHT) return 0;
-            *x = raw_x;
-            *y = raw_y;
+            // Clamp, don't drop: an edge sample must not read as a release.
+            *x = raw_x < SCREEN_WIDTH ? raw_x : SCREEN_WIDTH - 1;
+            *y = raw_y < SCREEN_HEIGHT ? raw_y : SCREEN_HEIGHT - 1;
             return 1;
           #endif
 
@@ -304,15 +307,15 @@ void Display::RunSetup() {
     this->touchscreen.setRotation(0);
   #endif
 
-  #ifdef HAS_CAP_TOUCH
-    #ifdef MARAUDER_CROWPANEL_ADV
-      gt911_init();
-    #else
-      ft6336_init();
-    #endif
+  #if defined(HAS_CAP_TOUCH) && !defined(MARAUDER_CROWPANEL_ADV)
+    ft6336_init();
   #endif
-  
+
   tft.init();
+
+  #if defined(HAS_CAP_TOUCH) && defined(MARAUDER_CROWPANEL_ADV)
+    gt911_init();  // after tft.init(): panel power-on activates the GT911 (V1.1 cmd 0x19)
+  #endif
 
   tft.setRotation(SCREEN_ORIENTATION);
 
@@ -356,34 +359,44 @@ void Display::drawBootSplash() {
     return;
   #endif
   #ifdef MARAUDER_CROWPANEL_ADV
-    // Cod3rs-branded splash (palette from cod3rs.org): near-black bg, purple
-    // accent, light mono text, plus a loading bar driven by drawBootProgress().
-    constexpr uint16_t C3_BG = 0x0862;        // #0e0e12
-    constexpr uint16_t C3_ACCENT = 0x72DF;    // #755AFB
-    constexpr uint16_t C3_ACCENT_LT = 0x8B7F; // #8a6dff
-    constexpr uint16_t C3_TEXT = 0xF79E;      // #f3f3f3
-    tft.fillScreen(C3_BG);
+    // Marauder-GD style splash on black: "//MARAUDER" title with the accent
+    // marker, Cod3rs/CrowPanel subtitle, a thin accent progress track (filled
+    // by drawBootProgress - geometry contract unchanged), version bottom-left.
+    tft.fillScreen(crowpanel::kBg);
     tft.setTextWrap(false);
-    tft.setFreeFont(NULL);
-    tft.setTextColor(C3_ACCENT, C3_BG);
-    tft.setTextSize(6);
-    tft.drawCentreString("COD3RS", width / 2, height / 2 - 130, 1);
-    tft.setTextColor(C3_TEXT, C3_BG);
-    tft.setTextSize(2);
-    tft.drawCentreString("ESP32 Marauder", width / 2, height / 2 - 56, 1);
-    tft.setTextColor(C3_ACCENT_LT, C3_BG);
-    tft.drawCentreString(version_number, width / 2, height / 2 - 26, 1);
+    tft.setTextDatum(lgfx::middle_center);
+
+    tft.setFont(&fonts::FreeSansBold24pt7b);
+    const char* kTitle = "MARAUDER";
+    const int16_t title_w = tft.textWidth(kTitle);
+    const int16_t marker_w = tft.textWidth("// ");
+    const int16_t title_y = height / 2 - 40;
+    tft.setTextDatum(lgfx::middle_left);
+    const int16_t title_x = (width - marker_w - title_w) / 2;
+    tft.setTextColor(crowpanel::kAccent, crowpanel::kBg);
+    tft.drawString("//", title_x, title_y);
+    tft.setTextColor(crowpanel::kText, crowpanel::kBg);
+    tft.drawString(kTitle, title_x + marker_w, title_y);
+
+    tft.setTextDatum(lgfx::middle_center);
+    tft.setFont(&fonts::Font2);
+    tft.setTextColor(crowpanel::kMuted, crowpanel::kBg);
+    tft.drawString("ESP32 - Marauder", width / 2, height / 2 + 6);
+
     // Loading-bar track (drawBootProgress fills it).
     boot_bar_w_ = width * 60 / 100;
-    boot_bar_h_ = 18;
+    boot_bar_h_ = 10;  // thin; drawBootProgress insets by 3px per side for the fill
     boot_bar_x_ = (width - boot_bar_w_) / 2;
     boot_bar_y_ = height / 2 + 44;
     tft.drawRoundRect(boot_bar_x_, boot_bar_y_, boot_bar_w_, boot_bar_h_,
-                      boot_bar_h_ / 2, C3_ACCENT);
-    tft.setTextColor(C3_TEXT, C3_BG);
-    tft.setTextSize(1);
-    tft.drawCentreString("Initializing...", width / 2,
-                         boot_bar_y_ + boot_bar_h_ + 14, 1);
+                      boot_bar_h_ / 2, crowpanel::kAccent);
+    tft.setTextColor(crowpanel::kMuted, crowpanel::kBg);
+    tft.drawString("Initializing...", width / 2, boot_bar_y_ + boot_bar_h_ + 16);
+
+    tft.setTextDatum(lgfx::bottom_left);
+    tft.drawString(version_number, 12, height - 10);
+
+    crowpanel::ui::restore(tft);
     return;
   #endif
   #if defined(MARAUDER_CYD_3_5_INCH) || defined(MARAUDER_PANCAKE)
@@ -543,6 +556,15 @@ void Display::tftDrawYScaleButtons(byte y_scale)
 }
 
 void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    // Channel -/+ live in the toolbar under the header; the channel number is
+    // shown only in the toolbar's label.
+    crowpanel_toolbar = true;
+    crowpanel_ch = set_channel;
+    TOP_FIXED_AREA_2 = crowpanel::kScanBodyTopToolbar;
+    crowpanelToolbar();
+    return;
+  #endif
   #ifdef MARAUDER_POOM
     return;
   #endif
@@ -606,6 +628,14 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
 }
 
 void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    crowpanel_toolbar = true;
+    crowpanel_hop_en = true;
+    crowpanel_hop = en;
+    TOP_FIXED_AREA_2 = crowpanel::kScanBodyTopToolbar;
+    crowpanelToolbar();
+    return;
+  #endif
   #ifdef MARAUDER_POOM
     return;
   #endif
@@ -670,6 +700,11 @@ void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
 }
 
 void Display::tftDrawExitScaleButtons(bool lnd_an) {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    // STOP is the header button, hit-tested by rect in checkAnalyzerButtons.
+    crowpanel::ui::drawHeader(tft, crowpanel_title, "", false, true);
+    return;
+  #endif
   #ifdef MARAUDER_POOM
     return;
   #endif
@@ -713,6 +748,19 @@ void Display::tftDrawExitScaleButtons(bool lnd_an) {
 
 void Display::twoPartDisplay(String center_text)
 {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    // Plain kText on black under the header; no yellow panel.
+    tft.setFont(nullptr);
+    tft.setTextSize(2);
+    tft.setTextWrap(true);
+    tft.setTextColor(crowpanel::kText, crowpanel::kBg);
+    tft.setCursor(crowpanel::kMargin, crowpanel::kScanBodyTop + 4);
+    tft.println(center_text);
+    tft.setTextSize(1);
+    tft.setFreeFont(MENU_FONT);
+    tft.setTextWrap(false);
+    return;
+  #endif
   tft.setTextColor(TFT_BLACK, TFT_YELLOW);
   tft.fillRect(0,16,HEIGHT_1,144, TFT_YELLOW);
   //tft.drawCentreString(center_text,120,82,1);
@@ -726,8 +774,83 @@ void Display::twoPartDisplay(String center_text)
   tft.setTextWrap(false);
 }
 
+#ifdef MARAUDER_CROWPANEL_ADV
+void Display::crowpanelToolbar() {
+  crowpanel::ui::drawToolbar(tft, crowpanel_ch, crowpanel_hop);
+  if (!crowpanel_hop_en)
+    crowpanel::ui::drawButton(tft, crowpanel::kHopBtn, "HOP", crowpanel::ui::Style::Disabled);
+}
+
+void Display::crowpanelBodyLine(const char* text, int16_t y, uint16_t color) {
+  tft.fillRect(crowpanel::kMargin, y, crowpanel::kRowW, crowpanel::kTextLineH, crowpanel::kBg);
+  tft.setFont(nullptr);
+  tft.setTextSize(2);
+  tft.setTextDatum(lgfx::top_left);
+  tft.setTextColor(color, crowpanel::kBg);
+  tft.setCursor(crowpanel::kMargin, y);
+  tft.print(text ? text : "");
+  tft.setTextSize(1);
+}
+
+void Display::crowpanelScanHeader(const char* title) {
+  strlcpy(crowpanel_title, title ? title : "", sizeof(crowpanel_title));
+  crowpanel_toolbar = false;
+  crowpanel_hop_en = true;
+  crow_stat_n = 0;
+  TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop;
+  crowpanel::ui::clearBody(tft, crowpanel::kScanBodyTop);
+  crowpanel::ui::drawHeader(tft, crowpanel_title, "", false, true);
+}
+
+void Display::crowpanelStatsRow(const crowpanel::Rect* rects, uint8_t n,
+                                const char* const* labels, const char* const* values,
+                                const uint16_t* colors, int16_t bodyTop) {
+  if (n > kMaxCrowStats) n = kMaxCrowStats;
+  crow_stat_n = n;
+  for (uint8_t i = 0; i < n; i++) {
+    crow_stat_rect[i] = rects[i];
+    crow_stat_color[i] = colors[i];
+    crowpanel::ui::drawStatCard(tft, rects[i], labels[i], values[i], colors[i]);
+  }
+  if (bodyTop > 0) TOP_FIXED_AREA_2 = bodyTop;
+  crow_stats_last_ms = millis();
+}
+
+void Display::crowpanelStatsUpdate(uint8_t i, const char* value) {
+  if (i >= crow_stat_n) return;
+  const crowpanel::Rect r = crow_stat_rect[i];
+  crowpanel::ui::drawStatValue(tft, r, value, crow_stat_color[i]);  // label/border untouched
+}
+
+bool Display::crowpanelStatsDue(uint32_t now) {
+  if (now - crow_stats_last_ms < 500) return false;
+  crow_stats_last_ms = now;
+  return true;
+}
+#endif
+
+// Title band under the status bar. CrowPanel replaces it with the GD header.
+void Display::scanTitleBand(uint16_t color)
+{
+  #ifndef MARAUDER_CROWPANEL_ADV
+    tft.fillRect(0, 16, SCREEN_WIDTH, 16, color);
+  #endif
+}
+
+void Display::scanTitle(const String& title)
+{
+  #ifdef MARAUDER_CROWPANEL_ADV
+    crowpanelScanHeader(title.c_str());
+  #else
+    tft.drawCentreString(title, SCREEN_WIDTH / 2, 16, 2);
+  #endif
+}
+
 void Display::touchToExit()
 {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    return; // STOP in the header replaces the "touch to exit" strip
+  #endif
   tft.setTextColor(TFT_BLACK, TFT_LIGHTGREY);
   tft.fillRect(0, 32, SCREEN_WIDTH, 16, TFT_LIGHTGREY);
   tft.drawCentreString(text11, SCREEN_WIDTH / 2, 32, 2);
@@ -737,6 +860,17 @@ void Display::touchToExit()
 // Function to just draw the screen black
 void Display::clearScreen()
 {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop;
+    crowpanel_toolbar = false;
+    crowpanel_hop = false;
+    crowpanel_hop_en = true;
+    crow_stat_n = 0;
+    crowpanel_title[0] = 0;
+    tft.fillScreen(crowpanel::kBg);
+    tft.setCursor(0, 0);
+    return;
+  #endif
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = 48;
   #endif
@@ -764,7 +898,11 @@ void Display::scrollScreenBuffer(bool down) {
 
 void Display::processAndPrintString(TFT_eSPI& tft, const String& originalString) {
   // Define colors
+  #ifdef MARAUDER_CROWPANEL_ADV
+    uint16_t text_color = crowpanel::kText;
+  #else
   uint16_t text_color = TFT_GREEN; // Default text color
+  #endif
   uint16_t background_color = TFT_BLACK; // Default background color
 
   String new_string = originalString;
@@ -775,7 +913,11 @@ void Display::processAndPrintString(TFT_eSPI& tft, const String& originalString)
       text_color = TFT_RED;
       new_string.remove(0, strlen(RED_KEY)); // Remove the macro
     } else if (new_string.startsWith(GREEN_KEY)) {
+      #ifdef MARAUDER_CROWPANEL_ADV
+        text_color = crowpanel::kAccent;
+      #else
       text_color = TFT_GREEN;
+      #endif
       new_string.remove(0, strlen(GREEN_KEY)); // Remove the macro
     } else if (new_string.startsWith(CYAN_KEY)) {
       text_color = TFT_CYAN;
@@ -792,7 +934,11 @@ void Display::processAndPrintString(TFT_eSPI& tft, const String& originalString)
   // Scan output uses the built-in 6-pixel font. CHAR_WIDTH describes larger
   // menu/layout cells on full-size displays, so using it here cut their line
   // capacity in half and truncated values such as MAC addresses.
+  #ifdef MARAUDER_CROWPANEL_ADV
+    char line[64]; // 764px / 12px glyphs at text size 2
+  #else
   char line[STANDARD_FONT_CHAR_LIMIT + 1];
+  #endif
   fitDisplayLine(line, sizeof(line), new_string.c_str()); // GCOVR_EXCL_LINE
 
   // Set text color and print the string
@@ -846,11 +992,35 @@ void Display::displayBuffer(bool do_clear)
           blank[(18+(yStart - TOP_FIXED_AREA_2) / TEXT_HEIGHT)%19] = xPos;
       #else*/
         xPos = 0;
+        #ifdef MARAUDER_CROWPANEL_ADV
+          const bool crow_scrolled = this->screen_buffer->size() >= MAX_SCREEN_BUFFER;
+        #endif
         if (this->screen_buffer->size() >= MAX_SCREEN_BUFFER)
           this->scrollScreenBuffer();
 
         screen_buffer->add(display_buffer->shift());
 
+        #ifdef MARAUDER_CROWPANEL_ADV
+        {
+          // Rows at 16px pitch below the header (and toolbar). Appending to a
+          // buffer that still fits repaints only the new row; scrolling or
+          // overflowing the visible lines repaints the visible window.
+          const int total = this->screen_buffer->size();
+          const int lines = (crowpanel::kScreenH - TOP_FIXED_AREA_2) / crowpanel::kTextLineH;
+          const int first = total > lines ? total - lines : 0;
+          const int start = (!crow_scrolled && total <= lines) ? total - 1 : first;
+          tft.setFont(nullptr);
+          tft.setTextSize(2);
+          tft.setTextDatum(lgfx::top_left);
+          for (int i = start; i < total; i++) {
+            const int16_t y = TOP_FIXED_AREA_2 + (i - first) * crowpanel::kTextLineH;
+            tft.fillRect(crowpanel::kMargin, y, crowpanel::kRowW, crowpanel::kTextLineH, crowpanel::kBg);
+            tft.setCursor(crowpanel::kMargin, y);
+            this->processAndPrintString(tft, this->screen_buffer->get(i));
+          }
+          tft.setTextSize(1);
+        }
+        #else
         for (int i = 0; i < this->screen_buffer->size(); i++) {
 		  #ifdef MARAUDER_POOM
 			tft.setCursor(xPos, STATUS_BAR_WIDTH + (i * TEXT_HEIGHT));
@@ -866,6 +1036,7 @@ void Display::displayBuffer(bool do_clear)
 
           this->processAndPrintString(tft, this->screen_buffer->get(i));
         }
+        #endif
       //#endif
 
       print_count--;
