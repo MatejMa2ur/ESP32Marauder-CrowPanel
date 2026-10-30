@@ -197,13 +197,13 @@ class Display
     void scanTitle(const String& title);
     #ifdef MARAUDER_CROWPANEL_ADV
       // GD-style scan header (title, STOP) + cleared body; toolbar state below.
-      char crow_title[48] = "";
-      bool crow_toolbar = false;  // channel/hop toolbar shown under the header
-      bool crow_hop = false;
-      uint8_t crow_ch = 1;
-      bool crow_hop_en = true;    // false: HOP drawn disabled and ignored (packet monitor)
+      char crowpanel_title[48] = "";
+      bool crowpanel_toolbar = false;  // channel/hop toolbar shown under the header
+      bool crowpanel_hop = false;
+      uint8_t crowpanel_ch = 1;
+      bool crowpanel_hop_en = true;    // false: HOP drawn disabled and ignored (packet monitor)
       void crowpanelScanHeader(const char* title);
-      void crowToolbar();
+      void crowpanelToolbar();
       // One 16px text row in the body at x=18 (text size 2), cleared first.
       void crowpanelBodyLine(const char* text, int16_t y, uint16_t color);
       // Marauder-GD stat card row (statRect/kStatRowBottom from CrowPanelLayout.h).

@@ -319,13 +319,6 @@ uint32_t currentTime  = 0;
   SDInterface sd_obj = SDInterface(&sharedSPI, SD_CS);
 #endif
 
-// Weak-symbol tripwire: the arduino core calls initVariant() at the very end of
-// initArduino(), immediately before the loopTask runs setup(). If this prints but
-// SETUP TOP does not, the hang is between initArduino finishing and setup starting.
-extern "C" void initVariant() {
-  ets_printf("\n>>> initVariant: initArduino complete <<<\n");
-}
-
 void setup()
 {
   ets_printf("\n>>> SETUP TOP reached <<<\n");

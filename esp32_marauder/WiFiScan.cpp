@@ -3858,9 +3858,9 @@ void WiFiScan::setupScanDisplayArea(uint16_t background, uint16_t color) {
   #ifdef HAS_SCREEN
     #ifdef MARAUDER_CROWPANEL_ADV
       display_obj.TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop;
-      display_obj.crow_toolbar = false;
-      display_obj.crow_hop = false;
-      display_obj.crow_hop_en = true;
+      display_obj.crowpanel_toolbar = false;
+      display_obj.crowpanel_hop = false;
+      display_obj.crowpanel_hop_en = true;
     #else
     display_obj.TOP_FIXED_AREA_2 = 48;
     #endif
@@ -4440,7 +4440,7 @@ void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color) {
       {
         // access_points/stations are reset right below, so the row starts at 0
         // rather than reading the about-to-be-freed previous scan's counts.
-        this->crow_scan_start_ms = millis();
+        this->crowpanel_scan_start_ms = millis();
         const crowpanel::Rect rects[3] = {crowpanel::statRect(0), crowpanel::statRect(1),
                                           crowpanel::statRect(2)};
         const char* labels[3] = {"APs", "STATIONS", "ELAPSED"};
@@ -5248,6 +5248,20 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color) {
   uint32_t initTime = millis();
 }
 
+#ifdef MARAUDER_CROWPANEL_ADV
+void WiFiScan::crowpanelScanCards(const char* label, bool toolbar) {
+  this->crowpanel_scan_start_ms = millis();
+  const crowpanel::Rect rects[2] = {
+      toolbar ? crowpanel::Rect{444, 72, 160, 44} : crowpanel::statRect(0),
+      toolbar ? crowpanel::Rect{612, 72, 170, 44} : crowpanel::statRect(1)};
+  const char* labels[2] = {label, "ELAPSED"};
+  const char* values[2] = {"0", "0s"};
+  const uint16_t colors[2] = {crowpanel::kText, crowpanel::kMuted};
+  display_obj.crowpanelStatsRow(rects, 2, labels, values, colors,
+                                toolbar ? 0 : crowpanel::kStatRowBottom + 8);
+}
+#endif
+
 void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color) {
   this->setLEDMode(MODE_SNIFF);
   /*#ifdef HAS_FLIPPER_LED
@@ -5310,6 +5324,9 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color) {
       display_obj.tftDrawChannelScaleButtons(set_channel, false);
       display_obj.tftDrawExitScaleButtons(false);
       display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+      #ifdef MARAUDER_CROWPANEL_ADV
+        this->crowpanelScanCards("EAPOL", true);
+      #endif
     #endif
 //  #endif
 
@@ -5357,6 +5374,9 @@ void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color) {
       display_obj.scanTitle(text_table4[48]);
     #endif
     this->prepareScanStage(TFT_RED, TFT_BLACK);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      this->crowpanelScanCards("DETECTED", false);
+    #endif
   #endif
   
   esp_wifi_init(&cfg2);
@@ -5393,6 +5413,9 @@ void WiFiScan::RunMultiSSIDScan(uint8_t scan_mode, uint16_t color) {
       display_obj.scanTitle(text_table4[49]);
     #endif
     this->prepareScanStage(TFT_BLUE, TFT_BLACK);
+    #ifdef MARAUDER_CROWPANEL_ADV
+      this->crowpanelScanCards("DETECTED", false);
+    #endif
   #endif
   
   esp_wifi_init(&cfg2);
@@ -7024,15 +7047,7 @@ void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color) {
     display_obj.tftDrawExitScaleButtons(false);
     display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
     #ifdef MARAUDER_CROWPANEL_ADV
-      {
-        // Toolbar ends at x=432; two extra cards fit beside it on the same row.
-        this->crow_scan_start_ms = millis();
-        const crowpanel::Rect rects[2] = {{444, 72, 160, 44}, {612, 72, 170, 44}};
-        const char* labels[2] = {"PACKETS", "ELAPSED"};
-        const char* values[2] = {"0", "0s"};
-        const uint16_t colors[2] = {crowpanel::kText, crowpanel::kMuted};
-        display_obj.crowpanelStatsRow(rects, 2, labels, values, colors, 0);
-      }
+      this->crowpanelScanCards("PACKETS", true); // toolbar ends at x=432
     #endif
   #endif
 
@@ -7164,6 +7179,9 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color) {
       display_obj.tftDrawChannelScaleButtons(set_channel, false);
       display_obj.tftDrawExitScaleButtons(false);
       display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+      #ifdef MARAUDER_CROWPANEL_ADV
+        if (scan_mode == WIFI_SCAN_PROBE) this->crowpanelScanCards("PROBES", true);
+      #endif
     }
     //}
   #endif
@@ -7327,6 +7345,10 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
           #endif
         #endif
         display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        #ifdef MARAUDER_CROWPANEL_ADV
+          if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON))
+            this->crowpanelScanCards("DEVICES", false);
+        #endif
       #endif
       if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON)) {
         this->clearList(CLEAR_BLE);
@@ -7369,7 +7391,8 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
           display_obj.tft.setTextWrap(false);
           display_obj.scanTitle(text_table4[42]);
           display_obj.twoPartDisplay(text_table4[43]);
-          display_obj.TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop + 48; // below the intro text
+          constexpr int16_t kIntroTextH = 48; // height of the twoPartDisplay intro text above
+          display_obj.TOP_FIXED_AREA_2 = crowpanel::kScanBodyTop + kIntroTextH;
           display_obj.tft.setTextColor(crowpanel::kText, crowpanel::kBg);
           display_obj.tft.setFreeFont(NULL);
         #else
@@ -10817,12 +10840,12 @@ bool WiFiScan::filterActive() {
           crow_hit = -1;
           if (crowpanel::contains(crowpanel::kStopBtn, t_x, t_y))
             crow_hit = EXIT_BUTTON_INDEX;
-          else if (display_obj.crow_toolbar) {
+          else if (display_obj.crowpanel_toolbar) {
             switch (crowpanel::toolbarHit(t_x, t_y)) {
               case crowpanel::ToolbarHit::ChDown: crow_hit = CHAN_MINUS_INDEX; break;
               case crowpanel::ToolbarHit::ChUp:   crow_hit = CHAN_PLUS_INDEX; break;
               case crowpanel::ToolbarHit::Hop:
-                if (display_obj.crow_hop_en) crow_hit = CHAN_HOP_INDEX;
+                if (display_obj.crowpanel_hop_en) crow_hit = CHAN_HOP_INDEX;
                 break;
               default: break;
             }
@@ -10981,8 +11004,8 @@ bool WiFiScan::filterActive() {
     void WiFiScan::drawPacketMonitorControls() {
       #ifdef MARAUDER_CROWPANEL_ADV
         // Header (STOP) + toolbar; never erase the header like the 64px band below.
-        strlcpy(display_obj.crow_title, text_table1[45], sizeof(display_obj.crow_title));
-        display_obj.crow_hop_en = false; // channel hopping does nothing here
+        strlcpy(display_obj.crowpanel_title, text_table1[45], sizeof(display_obj.crowpanel_title));
+        display_obj.crowpanel_hop_en = false; // channel hopping does nothing here
         display_obj.tftDrawChannelScaleButtons(set_channel, false);
         display_obj.tftDrawExitScaleButtons(false);
         return;
@@ -12774,6 +12797,42 @@ void WiFiScan::runFoxHunt(uint32_t currentTime) {
 // Function for updating scan status
 void WiFiScan::main(uint32_t currentTime)
 {
+  #ifdef MARAUDER_CROWPANEL_ADV
+    // Throttled stat-card refresh for every scan screen that drew cards.
+    if (display_obj.crowpanelStatsDue(currentTime)) {
+      char buf[12];
+      const uint32_t elapsed_s = (currentTime - this->crowpanel_scan_start_ms) / 1000;
+      int8_t elapsed_idx = 1; // second card, except the 3-card AP/STA row
+      long count = -1;
+      switch (currentScanMode) {
+        case WIFI_SCAN_AP:
+        case WIFI_SCAN_AP_STA:
+          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedAccessPointCount());
+          display_obj.crowpanelStatsUpdate(0, buf);
+          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedStationCount());
+          display_obj.crowpanelStatsUpdate(1, buf);
+          elapsed_idx = 2;
+          break;
+        case WIFI_SCAN_DEAUTH:       count = packets_sent; break;
+        case WIFI_SCAN_PROBE:        count = probe_req_ssids->size(); break;
+        case WIFI_SCAN_PINESCAN:     count = this->getPineScanCount(); break;
+        case WIFI_SCAN_MULTISSID:    count = this->getMultiSSIDCount(); break;
+        case BT_SCAN_ALL:
+        case BT_SCAN_IBEACON:        count = this->retainedBleDeviceCount(); break;
+        case WIFI_SCAN_EAPOL:
+        case WIFI_SCAN_ACTIVE_EAPOL: count = this->eapol_frames; break;
+        default: elapsed_idx = -1; break;
+      }
+      if (elapsed_idx >= 0) {
+        if (count >= 0) {
+          snprintf(buf, sizeof(buf), "%ld", count);
+          display_obj.crowpanelStatsUpdate(0, buf);
+        }
+        snprintf(buf, sizeof(buf), "%lus", (unsigned long)elapsed_s);
+        display_obj.crowpanelStatsUpdate(elapsed_idx, buf);
+      }
+    }
+  #endif
   // WiFi operations
   if ((currentScanMode == WIFI_SCAN_PROBE) ||
   (currentScanMode == WIFI_SCAN_AP) ||
@@ -12796,25 +12855,6 @@ void WiFiScan::main(uint32_t currentTime)
         this->signalAnalyzerLoop(currentTime);
       #endif
     }
-    #ifdef MARAUDER_CROWPANEL_ADV
-      if (display_obj.crowpanelStatsDue(currentTime)) {
-        char buf[12];
-        const uint32_t elapsed_s = (currentTime - this->crow_scan_start_ms) / 1000;
-        if ((currentScanMode == WIFI_SCAN_AP) || (currentScanMode == WIFI_SCAN_AP_STA)) {
-          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedAccessPointCount());
-          display_obj.crowpanelStatsUpdate(0, buf);
-          snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedStationCount());
-          display_obj.crowpanelStatsUpdate(1, buf);
-          snprintf(buf, sizeof(buf), "%lus", (unsigned long)elapsed_s);
-          display_obj.crowpanelStatsUpdate(2, buf);
-        } else if (currentScanMode == WIFI_SCAN_DEAUTH) {
-          snprintf(buf, sizeof(buf), "%lu", (unsigned long)packets_sent);
-          display_obj.crowpanelStatsUpdate(0, buf);
-          snprintf(buf, sizeof(buf), "%lus", (unsigned long)elapsed_s);
-          display_obj.crowpanelStatsUpdate(1, buf);
-        }
-      }
-    #endif
   }
   else if (currentScanMode == WIFI_SCAN_SAE_COMMIT) {
     if (currentTime - initTime >= 250) {

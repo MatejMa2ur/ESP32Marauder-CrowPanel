@@ -928,7 +928,10 @@ class WiFiScan
     #ifdef MARAUDER_CROWPANEL_ADV
       // millis() timestamp of the current scan screen, for the ELAPSED stat
       // card; set by the scan family's setup, read each loop in main().
-      uint32_t crow_scan_start_ms = 0;
+      uint32_t crowpanel_scan_start_ms = 0;
+      // Two stat cards (value + ELAPSED). toolbar: beside the channel toolbar
+      // (never shows the channel); else the first two cards of the stat row.
+      void crowpanelScanCards(const char* label, bool toolbar);
     #endif
 
     bool channel_hop = false;
