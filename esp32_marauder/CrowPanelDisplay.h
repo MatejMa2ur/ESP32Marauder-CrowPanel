@@ -195,6 +195,50 @@ struct Bus_EspLcdRGB : public lgfx::IBus {
 };
 #endif  // CROWPANEL_ADV_ESP_LCD_BUS
 
+#ifndef CROWPANEL_ADV_ESP_LCD_BUS
+#include <esp_timer.h>
+#include <esp_rom_sys.h>
+#include <soc/lcd_cam_struct.h>
+#include <soc/gdma_struct.h>
+#include <soc/gdma_channel.h>
+// LovyanGFX's Bus_RGB re-arms GDMA only from its LCD VSYNC_END ISR
+// (Bus_RGB.inl:93-97) and never touches LCD_CAM after init(). If a PSRAM
+// underrun stalls the LCD engine there is no more VSYNC, so nothing restarts
+// and the ST7262 falls into its self-test colour cycle. Polled every 100 ms
+// from an esp_timer: if lcd_start dropped, or the GDMA current-descriptor
+// pointer has not moved for 3 polls (~9 frames), restart LCD+GDMA the way
+// esp_lcd's lcd_rgb_panel_start_transmission() does. Framebuffer untouched.
+static volatile uint32_t crowpanel_adv_lcd_restarts = 0;
+static inline void crowpanel_adv_lcd_watchdog(void *) {
+  static int ch = -1;
+  static uint32_t last_dscr = 0, same = 0;
+  if (ch < 0) ch = lgfx::search_dma_out_ch(SOC_GDMA_TRIG_PERIPH_LCD0);  // same lookup as Bus_RGB::init
+  if (ch < 0) return;
+  auto &out = GDMA.channel[ch].out;
+  uint32_t d = out.dscr;  // OUT_DSCR: current outlink descriptor address
+  same = (d == last_dscr) ? same + 1 : 0;
+  last_dscr = d;
+  if (LCD_CAM.lcd_user.lcd_start && same < 3) return;
+  same = 0;
+  // link.addr still holds &_dmadesc_restart, written by the VSYNC ISR. ponytail:
+  // that node skips the FIFO prefill, so the first frame after a restart is
+  // shifted ~17 px; the next VSYNC re-sync fixes it.
+  uint32_t link = out.link.addr;
+  LCD_CAM.lcd_user.lcd_start = 0;           // lcd_ll_stop
+  LCD_CAM.lcd_user.lcd_update = 1;
+  out.conf0.out_rst = 1;                    // gdma_reset
+  out.conf0.out_rst = 0;
+  LCD_CAM.lcd_misc.lcd_afifo_reset = 1;     // lcd_ll_fifo_reset (self clear)
+  out.link.addr = link;
+  out.link.start = 1;
+  esp_rom_delay_us(1);                      // let DMA prefill the LCD FIFO
+  LCD_CAM.lcd_user.lcd_update = 1;          // lcd_ll_start
+  LCD_CAM.lcd_user.lcd_start = 1;
+  crowpanel_adv_lcd_restarts = crowpanel_adv_lcd_restarts + 1;
+  Serial.printf("CrowPanel: LCD stalled, restarted (#%u)\n", (unsigned)crowpanel_adv_lcd_restarts);
+}
+#endif
+
 class CrowPanelDisplay : public lgfx::LGFX_Device {
 #ifdef CROWPANEL_ADV_ESP_LCD_BUS
   Bus_EspLcdRGB   _bus;
@@ -255,6 +299,15 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
     if (ready) return true;
     crowpanel_adv_panel_power_on();
     ready = lgfx::LGFX_Device::init();
+#ifndef CROWPANEL_ADV_ESP_LCD_BUS
+    if (ready) {
+      esp_timer_create_args_t a = {};
+      a.callback = crowpanel_adv_lcd_watchdog;
+      a.name = "lcd_wd";
+      esp_timer_handle_t t;
+      if (esp_timer_create(&a, &t) == ESP_OK) esp_timer_start_periodic(t, 100000);
+    }
+#endif
     return ready;
   }
 
