@@ -925,6 +925,12 @@ class WiFiScan
     size_t retainedStationCount() const;
     size_t retainedBleDeviceCount() const;
 
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // millis() timestamp of the current scan screen, for the ELAPSED stat
+      // card; set by the scan family's setup, read each loop in main().
+      uint32_t crow_scan_start_ms = 0;
+    #endif
+
     bool channel_hop = false;
     uint8_t connected_devices = 0;
 

@@ -20,6 +20,7 @@
   #include "PoomDisplay.h"
 #elif defined(MARAUDER_CROWPANEL_ADV)
   #include "CrowPanelDisplay.h"
+  #include "CrowPanelLayout.h"
 #else
   #include <TFT_eSPI.h>
 #endif
@@ -205,6 +206,23 @@ class Display
       void crowToolbar();
       // One 16px text row in the body at x=18 (text size 2), cleared first.
       void crowpanelBodyLine(const char* text, int16_t y, uint16_t color);
+      // Marauder-GD stat card row (statRect/kStatRowBottom from CrowPanelLayout.h).
+      // crowpanelStatsRow draws n (<=4) cards and, if bodyTop > 0, sets
+      // TOP_FIXED_AREA_2 so body text/rows start below them. crowpanelStatsUpdate
+      // redraws only a card's value area; gate calls with crowpanelStatsDue() to
+      // cap refresh at ~2Hz. crowpanelStatsClear resets state when a screen with
+      // no stats is drawn.
+      static constexpr uint8_t kMaxCrowStats = 4;
+      crowpanel::Rect crow_stat_rect[kMaxCrowStats];
+      uint16_t crow_stat_color[kMaxCrowStats] = {0, 0, 0, 0};
+      uint8_t crow_stat_n = 0;
+      uint32_t crow_stats_last_ms = 0;
+      void crowpanelStatsRow(const crowpanel::Rect* rects, uint8_t n,
+                             const char* const* labels, const char* const* values,
+                             const uint16_t* colors, int16_t bodyTop);
+      void crowpanelStatsUpdate(uint8_t i, const char* value);
+      bool crowpanelStatsDue(uint32_t now);
+      void crowpanelStatsClear();
     #endif
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);

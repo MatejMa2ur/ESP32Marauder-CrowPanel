@@ -3597,7 +3597,7 @@
   #define I2C_SDA 15
   #define I2C_SCL 16
   // MENU_FONT must be a LovyanGFX GFXfont (the bare Adafruit FreeMono9pt7b symbol
-  // isn't linked without TFT_eSPI). ponytail: swap to another fonts::* face if a
+  // isn't linked without TFT_eSPI). Swap to another fonts::* face if a
   // different look is wanted.
   #undef MENU_FONT
   #define MENU_FONT &fonts::FreeMono9pt7b
