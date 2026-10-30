@@ -3025,12 +3025,10 @@ void WiFiScan::displayTargetFilter() {
   #ifdef HAS_SCREEN
     #ifdef MARAUDER_CROWPANEL_ADV
       {
-        int16_t y = crowpanel::kScanBodyTop + 4;
+        // Banner (drawn in startWiFiAttacks) already says Transmitting / targets;
+        // start the selected-network list below the cards + banner (y=174).
+        int16_t y = crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
         if (this->filterActive()) {
-          display_obj.crowpanelBodyLine("Transmitting...", y, crowpanel::kDanger);
-          y += crowpanel::kTextLineH;
-          display_obj.crowpanelBodyLine("Targeted Networks", y, crowpanel::kAccent);
-          y += crowpanel::kTextLineH;
           for (int i = 0; i < access_points->size() && y + crowpanel::kTextLineH <= crowpanel::kScreenH; i++) {
             AccessPoint access_point = access_points->get(i);
             if (access_point.selected) {
@@ -3105,6 +3103,47 @@ void WiFiScan::startWiFiAttacks(uint8_t scan_mode, uint16_t color, const char* t
       (scan_mode == WIFI_ATTACK_QUIET)) {
     this->displayTargetFilter();
   }
+
+  #ifdef MARAUDER_CROWPANEL_ADV
+  {
+    this->crowpanelScanCards("PACKETS", false); // cards: PACKETS + ELAPSED; resets start_ms
+    const char* doing = "Transmitting";
+    bool hopping = false;
+    int ch = this->set_channel;
+    char doingbuf[40];
+    switch (scan_mode) {
+      case WIFI_ATTACK_DEAUTH:
+      case WIFI_ATTACK_DEAUTH_MANUAL:
+        doing = "Deauthenticating clients"; break;
+      case WIFI_ATTACK_DEAUTH_TARGETED: {
+        int n = 0, first_ch = this->set_channel; bool got = false;
+        for (int i = 0; i < access_points->size(); i++)
+          if (access_points->get(i).selected) {
+            n++;
+            if (!got) { first_ch = access_points->get(i).channel; got = true; }
+          }
+        snprintf(doingbuf, sizeof(doingbuf), "Deauth %d target%s", n, n == 1 ? "" : "s");
+        doing = doingbuf;
+        ch = first_ch;   // targeted deauth follows the AP's channel
+        hopping = true;  // loop walks every selected AP's channel
+        break;
+      }
+      case WIFI_ATTACK_AUTH:             doing = "Flooding auth frames"; break;
+      case WIFI_ATTACK_BAD_MSG:
+      case WIFI_ATTACK_BAD_MSG_TARGETED: doing = "Flooding malformed frames"; break;
+      case WIFI_ATTACK_AP_SPAM:
+      case WIFI_ATTACK_CSA:
+      case WIFI_ATTACK_QUIET:
+      case WIFI_ATTACK_BEACON_LIST:      doing = "Flooding fake beacons"; break;
+      case WIFI_ATTACK_BEACON_SPAM:      // loop randomises ch 1-11 each second
+      case WIFI_ATTACK_RICK_ROLL:
+      case WIFI_ATTACK_FUNNY_BEACON:
+        doing = "Flooding fake beacons"; ch = 0; hopping = true; break;
+      default: break;
+    }
+    crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8, doing, ch, hopping);
+  }
+  #endif
 
   //wifi_ap_config_t ap_config;
   //ap_config.ssid_hidden = 1;
@@ -5326,6 +5365,11 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color) {
       display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
       #ifdef MARAUDER_CROWPANEL_ADV
         this->crowpanelScanCards("EAPOL", true);
+        crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                  "Capturing EAPOL handshakes", this->set_channel,
+                                  settings_obj.loadSetting<bool>("ChanHop"));
+        display_obj.TOP_FIXED_AREA_2 =
+            crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
       #endif
     #endif
 //  #endif
@@ -6958,6 +7002,16 @@ void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color) {
       display_obj.tftDrawChannelScaleButtons(set_channel, false);
       display_obj.tftDrawExitScaleButtons(false);
       display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+      #ifdef MARAUDER_CROWPANEL_ADV
+        if (scan_mode == WIFI_SCAN_AP) {
+          this->crowpanelScanCards("APS", true);
+          crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                    "Sniffing beacon frames", this->set_channel,
+                                    settings_obj.loadSetting<bool>("ChanHop"));
+          display_obj.TOP_FIXED_AREA_2 =
+              crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+        }
+      #endif
     }
     //}
   #endif
@@ -7180,7 +7234,14 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color) {
       display_obj.tftDrawExitScaleButtons(false);
       display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
       #ifdef MARAUDER_CROWPANEL_ADV
-        if (scan_mode == WIFI_SCAN_PROBE) this->crowpanelScanCards("PROBES", true);
+        if (scan_mode == WIFI_SCAN_PROBE) {
+          this->crowpanelScanCards("PROBES", true);
+          crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                    "Listening for probe requests", this->set_channel,
+                                    settings_obj.loadSetting<bool>("ChanHop"));
+          display_obj.TOP_FIXED_AREA_2 =
+              crowpanel::liveListTop(crowpanel::kStatRowBottom + 8);
+        }
       #endif
     }
     //}
@@ -7346,13 +7407,27 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
         #endif
         display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
         #ifdef MARAUDER_CROWPANEL_ADV
-          if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON)) {
-            this->crowpanelScanCards("DEVICES", false);
-            // Unified scan banner (foundation): what it's doing. BLE advertises on
-            // channels 37/38/39 and the stack hops them itself, so no single ch.
-            crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
-                                      "Scanning BLE advertisements", 0, true);
+        {
+          const char* doing = nullptr;
+          const char* card  = "DEVICES";
+          switch (scan_mode) {
+            case BT_SCAN_ALL:
+            case BT_SCAN_IBEACON:     doing = "Scanning BLE advertisements"; break;
+            case BT_SCAN_AIRTAG:
+            case BT_SCAN_AIRTAG_MON:  doing = "Hunting AirTags / trackers"; card = "TAGS"; break;
+            case BT_SCAN_FLIPPER:     doing = "Detecting Flipper Zero devices"; card = "FLIPPERS"; break;
+            case BT_SCAN_RAYBAN:      doing = "Detecting Meta glasses"; card = "GLASSES"; break;
+            default: break; // FOX_HUNT/FLOCK/SIMPLE* keep their legacy view
           }
+          if (doing) {
+            this->crowpanelScanCards(card, false);
+            const int16_t banner_top = crowpanel::kStatRowBottom + 8;
+            // BLE advertises on 37/38/39 and the stack hops them, so no single ch.
+            crowpanel::ui::drawBanner(display_obj.tft, banner_top, doing, 0, true);
+            // Push the live list below the banner (fixes list-over-banner overlap).
+            display_obj.TOP_FIXED_AREA_2 = crowpanel::liveListTop(banner_top);
+          }
+        }
         #endif
       #endif
       if ((scan_mode == BT_SCAN_ALL) || (scan_mode == BT_SCAN_IBEACON)) {
@@ -11122,6 +11197,23 @@ void WiFiScan::changeChannel(int chan) {
         this->addAnalyzerValue(this->set_channel * -1, -72, this->_analyzer_values, SCREEN_WIDTH);
       #endif
     }
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // Live "on channel X" redraw on each hop for the banner-based sniffers.
+      // drawBanner repaints only its 24px strip, so the results list is untouched.
+      if (this->wifi_initialized) {
+        const char* doing = nullptr;
+        switch (this->currentScanMode) {
+          case WIFI_SCAN_PROBE:  doing = "Listening for probe requests"; break;
+          case WIFI_SCAN_AP:     doing = "Sniffing beacon frames";       break;
+          case WIFI_SCAN_EAPOL:  doing = "Capturing EAPOL handshakes";   break;
+          default: break;
+        }
+        if (doing)
+          crowpanel::ui::drawBanner(display_obj.tft, crowpanel::kStatRowBottom + 8,
+                                    doing, this->set_channel,
+                                    settings_obj.loadSetting<bool>("ChanHop"));
+      }
+    #endif
   #endif
 }
 
@@ -12048,7 +12140,8 @@ void WiFiScan::displayTransmitRate() {
     displayString2.concat(" ");
   #ifdef HAS_SCREEN
     #ifdef MARAUDER_CROWPANEL_ADV
-      display_obj.crowpanelBodyLine(displayString.c_str(), TFT_HEIGHT / 2, crowpanel::kAccent);
+      // ponytail: PACKETS stat card (refreshed in main()) replaces the mid-screen
+      // line, which collided with the targeted-network list.
     #else
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
     display_obj.showCenterText(displayString2.c_str(), TFT_HEIGHT / 2);
@@ -12830,6 +12923,20 @@ void WiFiScan::main(uint32_t currentTime)
         case WIFI_SCAN_EAPOL:
         case WIFI_SCAN_ACTIVE_EAPOL:
         case WIFI_SCAN_ACTIVE_LIST_EAPOL: count = this->eapol_frames; break;
+        case WIFI_SCAN_AP:           count = (long)this->retainedAccessPointCount(); break;
+        case WIFI_ATTACK_DEAUTH:
+        case WIFI_ATTACK_DEAUTH_MANUAL:
+        case WIFI_ATTACK_DEAUTH_TARGETED:
+        case WIFI_ATTACK_AUTH:
+        case WIFI_ATTACK_BAD_MSG:
+        case WIFI_ATTACK_BAD_MSG_TARGETED:
+        case WIFI_ATTACK_AP_SPAM:
+        case WIFI_ATTACK_CSA:
+        case WIFI_ATTACK_QUIET:
+        case WIFI_ATTACK_BEACON_SPAM:
+        case WIFI_ATTACK_BEACON_LIST:
+        case WIFI_ATTACK_RICK_ROLL:
+        case WIFI_ATTACK_FUNNY_BEACON: count = this->packets_sent; break;
         default: elapsed_idx = -1; break;
       }
       if (elapsed_idx >= 0) {
