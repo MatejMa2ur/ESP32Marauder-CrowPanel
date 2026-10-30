@@ -205,21 +205,27 @@ struct Bus_EspLcdRGB : public lgfx::IBus {
 // (Bus_RGB.inl:93-97) and never touches LCD_CAM after init(). If a PSRAM
 // underrun stalls the LCD engine there is no more VSYNC, so nothing restarts
 // and the ST7262 falls into its self-test colour cycle. Polled every 100 ms
-// from an esp_timer: if lcd_start dropped, or the GDMA current-descriptor
+// from an esp_timer: if the GDMA current-descriptor
 // pointer has not moved for 3 polls (~9 frames), restart LCD+GDMA the way
 // esp_lcd's lcd_rgb_panel_start_transmission() does. Framebuffer untouched.
 static volatile uint32_t crowpanel_adv_lcd_restarts = 0;
 static inline void crowpanel_adv_lcd_watchdog(void *) {
   static int ch = -1;
-  static uint32_t last_dscr = 0, same = 0;
+  static uint32_t last_dscr = 0, same = 0, fails = 0, last_us = 0;
   if (ch < 0) ch = lgfx::search_dma_out_ch(SOC_GDMA_TRIG_PERIPH_LCD0);  // same lookup as Bus_RGB::init
   if (ch < 0) return;
   auto &out = GDMA.channel[ch].out;
   uint32_t d = out.dscr;  // OUT_DSCR: current outlink descriptor address
   same = (d == last_dscr) ? same + 1 : 0;
+  if (d != last_dscr) fails = 0;  // descriptor advancing: panel alive
   last_dscr = d;
-  if (LCD_CAM.lcd_user.lcd_start && same < 3) return;
+  if (same < 3) return;
   same = 0;
+  // Dead panel: after 5 restarts with no progress in between, retry at 1 Hz.
+  uint32_t now = (uint32_t)esp_timer_get_time();
+  if (fails >= 5 && now - last_us < 1000000) return;
+  last_us = now;
+  fails++;
   // link.addr still holds &_dmadesc_restart, written by the VSYNC ISR. ponytail:
   // that node skips the FIFO prefill, so the first frame after a restart is
   // shifted ~17 px; the next VSYNC re-sync fixes it.
@@ -235,7 +241,15 @@ static inline void crowpanel_adv_lcd_watchdog(void *) {
   LCD_CAM.lcd_user.lcd_update = 1;          // lcd_ll_start
   LCD_CAM.lcd_user.lcd_start = 1;
   crowpanel_adv_lcd_restarts = crowpanel_adv_lcd_restarts + 1;
-  Serial.printf("CrowPanel: LCD stalled, restarted (#%u)\n", (unsigned)crowpanel_adv_lcd_restarts);
+}
+// Call from loop(): the timer callback must not print.
+static inline void crowpanel_adv_lcd_watchdog_report() {
+  static uint32_t seen = 0;
+  uint32_t n = crowpanel_adv_lcd_restarts;
+  if (n != seen) {
+    seen = n;
+    Serial.printf("CrowPanel: LCD stalled, restarted (#%u)\n", (unsigned)n);
+  }
 }
 #endif
 

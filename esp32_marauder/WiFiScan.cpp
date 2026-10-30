@@ -9495,6 +9495,9 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
   else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) {
     if (type == WIFI_PKT_MGMT) {
       if ((snifferPacket->payload[0] == 0xA0 || snifferPacket->payload[0] == 0xC0 )) {
+        #ifdef MARAUDER_CROWPANEL_ADV
+          wifi_scan_obj.deauth_frames++;
+        #endif
         Serial.print(snifferPacket->rx_ctrl.rssi);
         Serial.print(F(" Ch: "));
         Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
@@ -12801,11 +12804,11 @@ void WiFiScan::main(uint32_t currentTime)
     // Throttled stat-card refresh for every scan screen that drew cards.
     if (display_obj.crowpanelStatsDue(currentTime)) {
       char buf[12];
-      const uint32_t elapsed_s = (currentTime - this->crowpanel_scan_start_ms) / 1000;
+      const int32_t elapsed_ms = (int32_t)(currentTime - this->crowpanel_scan_start_ms);
+      const uint32_t elapsed_s = (elapsed_ms < 0 ? 0 : elapsed_ms) / 1000;
       int8_t elapsed_idx = 1; // second card, except the 3-card AP/STA row
       long count = -1;
       switch (currentScanMode) {
-        case WIFI_SCAN_AP:
         case WIFI_SCAN_AP_STA:
           snprintf(buf, sizeof(buf), "%u", (unsigned)this->retainedAccessPointCount());
           display_obj.crowpanelStatsUpdate(0, buf);
@@ -12813,14 +12816,15 @@ void WiFiScan::main(uint32_t currentTime)
           display_obj.crowpanelStatsUpdate(1, buf);
           elapsed_idx = 2;
           break;
-        case WIFI_SCAN_DEAUTH:       count = packets_sent; break;
+        case WIFI_SCAN_DEAUTH:       count = this->deauth_frames; break;
         case WIFI_SCAN_PROBE:        count = probe_req_ssids->size(); break;
         case WIFI_SCAN_PINESCAN:     count = this->getPineScanCount(); break;
         case WIFI_SCAN_MULTISSID:    count = this->getMultiSSIDCount(); break;
         case BT_SCAN_ALL:
         case BT_SCAN_IBEACON:        count = this->retainedBleDeviceCount(); break;
         case WIFI_SCAN_EAPOL:
-        case WIFI_SCAN_ACTIVE_EAPOL: count = this->eapol_frames; break;
+        case WIFI_SCAN_ACTIVE_EAPOL:
+        case WIFI_SCAN_ACTIVE_LIST_EAPOL: count = this->eapol_frames; break;
         default: elapsed_idx = -1; break;
       }
       if (elapsed_idx >= 0) {

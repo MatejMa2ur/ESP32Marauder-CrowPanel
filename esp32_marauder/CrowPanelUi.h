@@ -140,22 +140,40 @@ inline void drawTile(CrowPanelDisplay &tft, Rect r, const char *title, const cha
   restore(tft);
 }
 
+// Value half of a stat card: clears only the value band (never the label), then draws.
+// Compact (h < 56): label left, value right on the same row. Tall: value under the label.
+inline void drawStatValue(CrowPanelDisplay &tft, Rect r, const char *value, uint16_t valueColor) {
+  const bool compact = r.h < 56;
+  char buf[32];
+  tft.setFont(&fonts::FreeSansBold12pt7b);
+  if (compact) {
+    tft.fillRect(r.x + r.w / 2, r.y + 2, r.w / 2 - 2, r.h - 4, kPanel);
+    fit(tft, value, r.w / 2 - 10, buf, sizeof(buf));
+    tft.setTextDatum(lgfx::middle_right);
+    tft.setTextColor(valueColor, kPanel);
+    tft.drawString(buf, r.x + r.w - 10, r.y + r.h / 2);
+  } else {
+    tft.fillRect(r.x + 2, r.y + 28, r.w - 4, r.h - 30, kPanel);
+    fit(tft, value, r.w - 20, buf, sizeof(buf));
+    tft.setTextDatum(lgfx::bottom_left);
+    tft.setTextColor(valueColor, kPanel);
+    tft.drawString(buf, r.x + 10, r.y + r.h - 8);
+  }
+  restore(tft);
+}
+
 inline void drawStatCard(CrowPanelDisplay &tft, Rect r, const char *label, const char *value,
                          uint16_t valueColor) {
   tft.fillRect(r.x, r.y, r.w, r.h, kPanel);
   tft.drawRect(r.x, r.y, r.w, r.h, kEdge);
+  const bool compact = r.h < 56;
   char buf[32];
-  tft.setTextDatum(lgfx::top_left);
   tft.setFont(&fonts::Font2);
-  fit(tft, label, r.w - 20, buf, sizeof(buf));
+  fit(tft, label, compact ? r.w / 2 - 10 : r.w - 20, buf, sizeof(buf));
   tft.setTextColor(kMuted, kPanel);
-  tft.drawString(buf, r.x + 10, r.y + 8);
-  tft.setFont(&fonts::FreeSansBold12pt7b);
-  fit(tft, value, r.w - 20, buf, sizeof(buf));
-  tft.setTextColor(valueColor, kPanel);
-  tft.setTextDatum(lgfx::bottom_left);
-  tft.drawString(buf, r.x + 10, r.y + r.h - 8);
-  restore(tft);
+  tft.setTextDatum(compact ? lgfx::middle_left : lgfx::top_left);
+  tft.drawString(buf, r.x + 10, compact ? r.y + r.h / 2 : r.y + 8);
+  drawStatValue(tft, r, value, valueColor);
 }
 
 // Small pill (h 22) at x,y; returns its width so chips can be chained.

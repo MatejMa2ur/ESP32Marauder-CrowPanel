@@ -210,8 +210,7 @@ class Display
       // crowpanelStatsRow draws n (<=4) cards and, if bodyTop > 0, sets
       // TOP_FIXED_AREA_2 so body text/rows start below them. crowpanelStatsUpdate
       // redraws only a card's value area; gate calls with crowpanelStatsDue() to
-      // cap refresh at ~2Hz. crowpanelStatsClear resets state when a screen with
-      // no stats is drawn.
+      // cap refresh at ~2Hz.
       static constexpr uint8_t kMaxCrowStats = 4;
       crowpanel::Rect crow_stat_rect[kMaxCrowStats];
       uint16_t crow_stat_color[kMaxCrowStats] = {0, 0, 0, 0};
@@ -222,7 +221,6 @@ class Display
                              const uint16_t* colors, int16_t bodyTop);
       void crowpanelStatsUpdate(uint8_t i, const char* value);
       bool crowpanelStatsDue(uint32_t now);
-      void crowpanelStatsClear();
     #endif
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);
