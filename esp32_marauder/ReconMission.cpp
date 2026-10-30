@@ -700,6 +700,14 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       const int16_t graph_y = body_top + 7;
       const int16_t graph_width = 84;
       const int16_t graph_height = 82;
+    #elif defined(MARAUDER_CROWPANEL_ADV)
+      // Landscape 800x480: a wide churn graph on the left, stats column on the
+      // right, device list across the bottom. (The other boards keep the small
+      // top-left layout below.)
+      const int16_t graph_x = 18;
+      const int16_t graph_y = body_top + 16;
+      const int16_t graph_width = 360;
+      const int16_t graph_height = 170;
     #else
       const int16_t graph_x = 8;
       const int16_t graph_y = body_top + 7;
@@ -820,6 +828,32 @@ void ReconMission::drawDashboard(uint32_t current_time) {
         display_obj.tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
         display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 124, 1);
       }
+    #elif defined(MARAUDER_CROWPANEL_ADV)
+      // Right-hand stats column at font 2, clear of the wide graph on the left.
+      const int16_t stats_x = 420;
+      const int16_t sy = body_top + 2;
+      display_obj.tft.setTextColor(CP_ACCENT, CP_BG);
+      display_obj.tft.drawString("LIVE ACTIVITY", stats_x, sy, 2);
+      display_obj.tft.setTextColor(CP_TEXT, CP_BG);
+      if (active_mode == ReconMode::WIFI_RECON) {
+        snprintf(line, sizeof(line), "AP        %lu", (unsigned long)ap_count);
+        display_obj.tft.drawString(line, stats_x, sy + 34, 2);
+        snprintf(line, sizeof(line), "STATION   %lu", (unsigned long)station_count);
+        display_obj.tft.drawString(line, stats_x, sy + 62, 2);
+        snprintf(line, sizeof(line), "PROBE     %lu", (unsigned long)probe_count);
+        display_obj.tft.drawString(line, stats_x, sy + 90, 2);
+        snprintf(line, sizeof(line), "UPDATE    %lu", (unsigned long)repeat_count);
+        display_obj.tft.drawString(line, stats_x, sy + 118, 2);
+        const bool deauth_active = last_deauth && current_time - last_deauth < RECON_DEAUTH_ALERT_MS;
+        snprintf(line, sizeof(line), "DEAUTH    %lu", (unsigned long)deauth_count);
+        display_obj.tft.setTextColor(deauth_active ? CP_DANGER : CP_MUTED, CP_BG);
+        display_obj.tft.drawString(line, stats_x, sy + 146, 2);
+      } else {
+        snprintf(line, sizeof(line), "BLE DEVICES  %lu", (unsigned long)ble_count);
+        display_obj.tft.drawString(line, stats_x, sy + 50, 2);
+        snprintf(line, sizeof(line), "UPDATES      %lu", (unsigned long)repeat_count);
+        display_obj.tft.drawString(line, stats_x, sy + 86, 2);
+      }
     #else
       const int16_t stats_x = 108;
       display_obj.tft.setTextColor(CP_ACCENT, CP_BG);
@@ -872,7 +906,11 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       }
     #else
       #if RECON_SCREEN_WIDTH >= 200
-        const int16_t relation_y = body_top + 112;
+        #ifdef MARAUDER_CROWPANEL_ADV
+          const int16_t relation_y = body_top + 200;  // clear of the graph + stats
+        #else
+          const int16_t relation_y = body_top + 112;
+        #endif
         display_obj.tft.drawFastHLine(6, relation_y - 6, RECON_SCREEN_WIDTH - 12, CP_EDGE);
         display_obj.tft.setTextColor(CP_ACCENT, CP_BG);
         display_obj.tft.drawString(active_mode == ReconMode::WIFI_RECON
