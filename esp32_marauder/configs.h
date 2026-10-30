@@ -3621,6 +3621,11 @@
   #define KEY_TEXTSIZE 2
   #define BUTTON_PADDING 40
   #define BUTTON_SCREEN_LIMIT 8
+  // Scan text view: (480 - kScanBodyTop 72) / 16px lines (CrowPanelLayout.h).
+  #ifdef MAX_SCREEN_BUFFER
+    #undef MAX_SCREEN_BUFFER
+  #endif
+  #define MAX_SCREEN_BUFFER 25
   // Backlight pin (GPIO2) for the LEDC brightness control path.
   #ifndef TFT_BL
     #define TFT_BL 2

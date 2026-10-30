@@ -204,6 +204,29 @@ class MenuFunctions
     MenuInputRepeat menu_touch_down_repeat;
     int8_t menu_touch_button = -1;
 
+    #ifdef MARAUDER_CROWPANEL_ADV
+      // Touch-UI menu state. Rows are the menu's nodes minus "Back", which
+      // moves to the header BACK button.
+      uint16_t crowpanel_page = 0;
+      uint16_t crowpanel_visible = 0;     // non-Back nodes in current_menu
+      int16_t crowpanel_rows[8];          // node index per row on this page
+      uint8_t crowpanel_row_count = 0;
+      int16_t crowpanel_back = -1;        // node index of "Back", -1 if none
+      bool crowpanel_pick_list = false;   // rows carry a selected checkbox
+      int8_t crowpanel_touch_target = -1; // target under the finger at touch-down
+      int16_t crowpanel_touch_x0 = 0, crowpanel_touch_y0 = 0;
+      int16_t crowpanel_touch_x1 = 0, crowpanel_touch_y1 = 0;
+      bool crowpanel_poi_drawn = false;
+      String crowpanel_status = "";
+
+      void crowpanelMapRows();
+      void crowpanelDrawRow(uint8_t row, bool pressed);
+      bool crowpanelScanRunning();
+      void crowpanelStopScan();
+      void crowpanelDrawPoi(bool flash = false);
+      void crowpanelTouch(bool pressed, uint16_t t_x, uint16_t t_y);
+    #endif
+
     void buildWiFiFoxHuntMenu();
     void buildBluetoothFoxHuntMenu();
     void buildFoxTargetList(FoxHuntListKind type, int context_ap = -1);
